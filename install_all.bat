@@ -41,10 +41,3 @@ winget install -e --id 9NM4T8B9JQZ1 --source msstore --accept-package-agreements
 echo.
 echo All installations complete.
 
-:: Wait for 30 seconds to allow review of the log, and disable the ability to skip the countdown.
-echo.
-echo Log review window will close in 30 seconds...
-timeout /t 30 /nobreak
-
-:: The final pause ensures the window stays open indefinitely after the countdown.
-pause
