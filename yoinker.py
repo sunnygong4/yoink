@@ -11,6 +11,9 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
+import time
+
+
 
 import requests
 import musicbrainzngs as mb
@@ -19,7 +22,17 @@ from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, APIC
 from mutagen.mp3 import MP3
 
-APP_NAME = "Yoink"
+class WidgetLogHandler(logging.Handler):
+    def __init__(self, widget):
+        logging.Handler.__init__(self)
+        self.widget = widget
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.widget.after(0, self.widget.insert, tk.END, msg + '\n')
+        self.widget.after(0, self.widget.see, tk.END)
+
+APP_NAME = "Yoinker"
 APP_VER = "3.0"  # Torrent support, UI redesign, unified interface
 
 mb.set_useragent(APP_NAME, APP_VER, "https://example.com")
@@ -39,7 +52,7 @@ def setup_logging(dest_root: Path | None) -> Path:
         handlers.append(RotatingFileHandler(dest_file, maxBytes=2_000_000, backupCount=3, encoding="utf-8"))
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", handlers=handlers)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.info("===== %s %s started =====", APP_NAME, APP_VER)
+    logging.info("===== %s %s started ====", APP_NAME, APP_VER)
     if dest_root:
         logging.info("Logs mirrored under: %s", (Path(dest_root)/LOG_DIR_NAME).as_posix())
         return dest_file
@@ -248,9 +261,11 @@ def make_ydl_common(ff_loc: str | None, cookies_from_browser: str | None = None,
         else:
             fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
     else:
-        fmt = (format_override or
+        fmt = (
+               format_override or
                (f"bestaudio[ext=m4a][abr<={max_abr_kbps}]/bestaudio[ext=m4a]/bestaudio/best" if max_abr_kbps else
-                "bestaudio[ext=m4a]/bestaudio/best"))
+                "bestaudio[ext=m4a]/bestaudio/best")
+              )
         postprocessors = [
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": str(max_abr_kbps or 0)},
             {"key": "FFmpegMetadata"},
@@ -272,10 +287,7 @@ def make_ydl_common(ff_loc: str | None, cookies_from_browser: str | None = None,
     if ff_loc: opts["ffmpeg_location"] = ff_loc
     
     # Use cookie fallback logic
-    if cookies_from_browser:
-        working_browser = get_cookies_browser()
-        if working_browser:
-            opts["cookiesfrombrowser"] = (working_browser,)
+
     
     logging.debug("yt-dlp options (%s): %s", log_name, {k: v for k,v in opts.items() if k != "logger"})
     return opts
@@ -353,7 +365,7 @@ def ensure_mp3_from_any(source_path: Path, ff_loc: str | None, target_dir: Path)
 def yt_first_match(query: str, ydl_common: dict, music_root: Path, is_video: bool = False, ff_loc: str | None = None):
     q = f"ytsearch1:{query} audio" if not is_video else f"ytsearch1:{query}"
     base_opts = dict(ydl_common)
-    outtmpl = str(music_root / "%(title)s.%(ext)s")
+    outtmpl = str(music_root / "% (title)s.%(ext)s")
     info, used = extract_with_retries(q, base_opts, outtmpl=outtmpl)
     logging.info("yt-dlp search success via: %s", used)
     paths = _resolve_downloaded_paths(info, music_root)
@@ -400,7 +412,7 @@ def check_and_update_ytdlp() -> str:
         commands = [
             ["yt-dlp", "-U"],
             [sys.executable, "-m", "yt_dlp", "-U"],
-            [sys.executable, "-c", "import yt_dlp; yt_dlp.main(['-U'])"]
+            [sys.executable, "-c", "import yt_dlp; yt_dlp.main([\"-U\"])"]
         ]
         
         for cmd in commands:
@@ -454,17 +466,16 @@ class App(tk.Tk):
     def build(self):
         pad = 8
         # Main container with left and right panels
-        main_container = ttk.Frame(self)
+        main_container = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main_container.pack(fill="both", expand=True, padx=pad, pady=pad)
         
         # Left panel (main content)
         left_panel = ttk.Frame(main_container)
-        left_panel.pack(side="left", fill="both", expand=True, padx=(0, pad))
+        main_container.add(left_panel, weight=1)
         
         # Right panel (task manager)
         right_panel = ttk.Frame(main_container, width=300)
-        right_panel.pack(side="right", fill="y")
-        right_panel.pack_propagate(False)
+        main_container.add(right_panel, weight=1)
         
         # Music root
         top = ttk.LabelFrame(left_panel, text="Destination (Music Root)")
@@ -484,7 +495,6 @@ class App(tk.Tk):
         self.tab_search = ttk.Frame(nb); self.tab_urls = ttk.Frame(nb); self.tab_torrents = ttk.Frame(nb)
         nb.add(self.tab_search, text="Song Downloader")
         nb.add(self.tab_urls, text="Download from Youtube/Bilibili")
-        nb.add(self.tab_torrents, text="Torrent Downloader")
         nb.select(self.tab_search)
 
         # URL tab
@@ -528,73 +538,7 @@ class App(tk.Tk):
         ttk.Button(bar1, text="Clear", command=lambda: self.urls_text.delete("1.0", "end")).pack(side="right")
         ttk.Button(bar1, text="Download", command=self.start_by_url).pack(side="right", padx=(0, 8))
 
-        # Torrent tab
-        torrent_search_frame = ttk.LabelFrame(self.tab_torrents, text="Torrent Search")
-        torrent_search_frame.pack(fill="x", padx=pad, pady=(pad, pad))
-        
-        # Search input
-        search_input_frame = ttk.Frame(torrent_search_frame)
-        search_input_frame.pack(fill="x", padx=pad, pady=(pad, 0))
-        ttk.Label(search_input_frame, text="Search:").pack(side="left")
-        self.torrent_search = tk.StringVar()
-        ttk.Entry(search_input_frame, textvariable=self.torrent_search).pack(side="left", fill="x", expand=True, padx=(6, 8))
-        ttk.Button(search_input_frame, text="Search Torrents", command=self.search_torrents).pack(side="right")
-        
-        # Search filters
-        filters_frame = ttk.Frame(torrent_search_frame)
-        filters_frame.pack(fill="x", padx=pad, pady=(0, pad))
-        
-        # First row of filters
-        row1 = ttk.Frame(filters_frame)
-        row1.pack(fill="x", pady=(0, 4))
-        
-        ttk.Label(row1, text="Year:").pack(side="left")
-        self.torrent_year = tk.StringVar()
-        year_entry = ttk.Entry(row1, textvariable=self.torrent_year, width=8)
-        year_entry.pack(side="left", padx=(6, 16))
-        
-        ttk.Label(row1, text="Director:").pack(side="left")
-        self.torrent_director = tk.StringVar()
-        director_entry = ttk.Entry(row1, textvariable=self.torrent_director, width=20)
-        director_entry.pack(side="left", padx=(6, 16))
-        
-        ttk.Label(row1, text="Quality:").pack(side="left")
-        self.torrent_quality = tk.StringVar(value="Any")
-        quality_combo = ttk.Combobox(row1, values=["Any", "360p", "480p", "720p", "1080p", "4K"], 
-                                     textvariable=self.torrent_quality, width=8, state="readonly")
-        quality_combo.pack(side="left", padx=(6, 0))
-        
-        # Second row of filters
-        row2 = ttk.Frame(filters_frame)
-        row2.pack(fill="x")
-        
-        ttk.Label(row2, text="Language:").pack(side="left")
-        self.torrent_language = tk.StringVar(value="Any")
-        language_combo = ttk.Combobox(row2, values=["Any", "English", "Spanish", "French", "German", "Italian", "Japanese", "Korean", "Chinese"], 
-                                      textvariable=self.torrent_language, width=10, state="readonly")
-        language_combo.pack(side="left", padx=(6, 16))
-        
-        ttk.Label(row2, text="Subtitles:").pack(side="left")
-        self.torrent_subtitles = tk.StringVar(value="Any")
-        subtitle_combo = ttk.Combobox(row2, values=["Any", "English", "Spanish", "French", "German", "Italian", "Japanese", "Korean", "Chinese", "None"], 
-                                      textvariable=self.torrent_subtitles, width=10, state="readonly")
-        subtitle_combo.pack(side="left", padx=(6, 0))
-        
-        # Bind Enter key to search
-        for widget in [year_entry, director_entry]:
-            widget.bind("<Return>", lambda e: self.search_torrents())
-        
-        # Torrent results
-        self.torrent_results = tk.Listbox(self.tab_torrents, height=12, selectmode=tk.EXTENDED)
-        self.torrent_results.pack(fill="both", expand=True, padx=pad, pady=(0, pad))
-        self.torrent_items = []
-        
-        # Torrent actions
-        torrent_actions = ttk.Frame(self.tab_torrents)
-        torrent_actions.pack(fill="x", padx=pad, pady=(0, pad))
-        ttk.Button(torrent_actions, text="Download Selected", command=self.download_selected_torrents).pack(side="right", padx=(8, 0))
-        ttk.Button(torrent_actions, text="Open Torrent File", command=self.open_torrent_file).pack(side="right", padx=(8, 0))
-        ttk.Button(torrent_actions, text="Open Magnet Link", command=self.open_magnet_link).pack(side="right")
+
 
         # Results list
         self.results = tk.Listbox(self.tab_search, height=16, selectmode=tk.EXTENDED)
@@ -642,6 +586,7 @@ class App(tk.Tk):
         bottom_frame.pack(fill="x", padx=pad, pady=(pad, 0))
         self.btn_find = ttk.Button(bottom_frame, text="Find Song", command=self.find_song)
         self.btn_find.pack(side="left", padx=(0, 8))
+
         ttk.Button(bottom_frame, text="Download Selected", command=self.download_selected_from_db).pack(side="right")
 
         # Status bar
@@ -662,6 +607,8 @@ class App(tk.Tk):
         for w in (mode_cb, e_unified_title, e_unified_artist):
             w.bind("<Return>", self._on_enter_search)
         self.results.bind("<Return>", self._on_enter_download)
+
+
 
     # ------------- Organizer (Library) -------------
     def intended_path(self, base: Path, mp3_path: Path):
@@ -761,7 +708,18 @@ class App(tk.Tk):
         # Bottom row: Detailed info
         info_frame = ttk.Frame(main_frame)
         info_frame.pack(fill="x", pady=(2,0))
-        
+
+        log_frame = ttk.Frame(main_frame)
+        log_frame.pack(fill="x", expand=True, pady=(2,0))
+        log_text = tk.Text(log_frame, height=5, wrap="word", font=("TkDefaultFont", 7))
+        log_text.pack(fill="x", expand=True, side="left")
+        scrollbar = ttk.Scrollbar(log_frame, command=log_text.yview)
+        scrollbar.pack(fill="y", side="right")
+        log_text.config(yscrollcommand=scrollbar.set)
+
+        handler = WidgetLogHandler(log_text)
+        logging.getLogger().addHandler(handler)
+
         # Speed and file info
         speed_label = ttk.Label(info_frame, text="Speed: --", font=("TkDefaultFont", 8))
         speed_label.pack(side="left")
@@ -786,11 +744,13 @@ class App(tk.Tk):
             "file_info_label": file_info_label,
             "peer_info_label": peer_info_label,
             "eta_label": eta_label,
+            "log_text": log_text,
             "cancel": False, 
             "btn": cancel_btn,
             "start_time": None,
             "downloaded_bytes": 0,
-            "total_bytes": 0
+            "total_bytes": 0,
+            "final_path": None
         }
 
     def _set_task_title(self, key: str, title: str):
@@ -805,6 +765,13 @@ class App(tk.Tk):
             t["btn"]["state"] = "disabled"
             t["btn"]["text"] = "✕"
             logging.info("Task flagged for cancel: %s", key)
+            final_path = t.get("final_path")
+            if final_path and final_path.exists():
+                try:
+                    final_path.unlink()
+                    logging.info(f"Cleaned up partially downloaded file: {final_path}")
+                except Exception as e:
+                    logging.error(f"Failed to clean up file: {final_path}, error: {e}")
 
     def _update_task_progress(self, key: str, pct: int, subtitle: str | None = None, 
                              speed: str | None = None, file_size: str | None = None, 
@@ -836,6 +803,8 @@ class App(tk.Tk):
         if eta:
             t["eta_label"]["text"] = f"ETA: {eta}"
         
+        t["log_text"].see(tk.END)
+        
         # Initialize start time if not set
         if t["start_time"] is None:
             t["start_time"] = datetime.now()
@@ -848,6 +817,10 @@ class App(tk.Tk):
             t["progress_bar"]["value"] = 100
             t["speed_label"]["text"] = "Speed: Complete"
             t["eta_label"]["text"] = "ETA: Done"
+            final_path = t.get("final_path")
+            if final_path:
+                open_folder_btn = ttk.Button(t["main_frame"], text="Open Folder", command=lambda p=final_path: os.startfile(p.parent))
+                open_folder_btn.pack(side="right", padx=(6,0))
         t["label"]["text"] = f"{t['label']['text']} — {status}"
         t["btn"]["state"] = "disabled"
         logging.info("Task finished: %s -> %s", key, status)
@@ -953,38 +926,46 @@ class App(tk.Tk):
         return _hk
 
     def worker_by_url(self, items):
-        music_root = Path(self.dest.get().strip() or (Path.home()/"Music"))
-        ensure_dir(music_root)
+        music_root = Path(self.dest.get().strip() or (Path.home()+"Music"))
         
-        # Get URL-specific settings
-        is_video = (self.url_mode.get() == "MP4")
-        if is_video:
-            video_quality = self.url_video_quality.get()
-            max_kbps = None  # No audio quality limit for video downloads
-        else:
-            cap = self.url_max_kbps.get()
-            max_kbps = None if cap == "No limit" else int(cap)
-            video_quality = None
-            
-        logging.info("URL worker: items=%d, mode=%s, kbps=%s, video_quality=%s", 
-                     len(items), self.url_mode.get(), max_kbps, video_quality)
+        for url, hint in items:
+            if "youtube.com" in url or "youtu.be" in url:
+                download_folder = music_root / "Youtube"
+            elif "bilibili.com" in url:
+                download_folder = music_root / "Bilibili"
+            else:
+                download_folder = music_root
 
-        max_workers = min(4, len(items))
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futs = []
-            for url, hint in items:
+            ensure_dir(download_folder)
+
+            # Get URL-specific settings
+            is_video = (self.url_mode.get() == "MP4")
+            if is_video:
+                video_quality = self.url_video_quality.get()
+                max_kbps = None  # No audio quality limit for video downloads
+            else:
+                cap = self.url_max_kbps.get()
+                max_kbps = None if cap == "No limit" else int(cap)
+                video_quality = None
+                
+            logging.info("URL worker: items=%d, mode=%s, kbps=%s, video_quality=%s", 
+                         len(items), self.url_mode.get(), max_kbps, video_quality)
+
+            max_workers = min(4, len(items))
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                futs = []
                 key = f"url::{url}"
                 self._create_task_row(key, f"URL: {url[:80]}")
-                futs.append(ex.submit(self._download_url_task, key, url, hint, music_root, max_kbps, is_video, video_quality))
-            for i, f in enumerate(as_completed(futs), start=1):
-                status, key = f.result()
-                self.after(0, lambda k=key, s=status: self._finish_task(k, s))
-        self.ui_status("Done ✓")
+                futs.append(ex.submit(self._download_url_task, key, url, hint, download_folder, max_kbps, is_video, video_quality))
+                for i, f in enumerate(as_completed(futs), start=1):
+                    status, key = f.result()
+                    self.after(0, lambda k=key, s=status: self._finish_task(k, s))
+            self.ui_status("Done ✓")
 
     def _download_url_task(self, key, url, title_hint, music_root, max_kbps, is_video, video_quality=None):
         logging.info("Task start (URL): %s", url)
         try:
-            base_opts = make_ydl_common(self.ff_loc, self.cookies_browser.get() or None, allow_playlists=True,
+            base_opts = make_ydl_common(self.ff_loc, allow_playlists=True,
                                         max_abr_kbps=max_kbps, url_video_mp4=is_video, log_name=f"yt-dlp:{key}:probe",
                                         video_quality=video_quality)
             with YoutubeDL(base_opts) as ydl:
@@ -1002,7 +983,7 @@ class App(tk.Tk):
                     opts = make_ydl_common(self.ff_loc, self.cookies_browser.get() or None, allow_playlists=False,
                                            hooks=hooks, max_abr_kbps=max_kbps, url_video_mp4=is_video,
                                            log_name=f"yt-dlp:{key}:{idx}/{total}", video_quality=video_quality)
-                    outtmpl = str(music_root / "%(title)s.%(ext)s")
+                    outtmpl = str(music_root / "% (title)s.%(ext)s")
                     target = e.get("webpage_url") or e.get("url")
                     info_e, used = extract_with_retries(target, opts, outtmpl=outtmpl)
                     logging.info("URL entry success via: %s", used)
@@ -1013,11 +994,13 @@ class App(tk.Tk):
                 opts = make_ydl_common(self.ff_loc, self.cookies_browser.get() or None, allow_playlists=False,
                                        hooks=hooks, max_abr_kbps=max_kbps, url_video_mp4=is_video,
                                        log_name=f"yt-dlp:{key}", video_quality=video_quality)
-                outtmpl = str(music_root / "%(title)s.%(ext)s")
+                outtmpl = str(music_root / "% (title)s.%(ext)s")
                 info_one, used = extract_with_retries(url, opts, outtmpl=outtmpl)
                 logging.info("URL single success via: %s", used)
                 ttl2 = info_one.get("title") or ttl
                 self.after(0, lambda: self._set_task_title(key, f"[URL] {ttl2}"))
+                final_path = music_root / f"{info_one.get('title')}.{info_one.get('ext')}"
+                self.per_task[key]["final_path"] = final_path
                 self._finalize_one_download(info_one, title_hint, music_root, is_video=is_video)
                 return "Done", key
         except KeyboardInterrupt:
@@ -1221,7 +1204,7 @@ class App(tk.Tk):
         return _hk
 
     def worker_from_db(self, sel_indices):
-        music_root = Path(self.dest.get().strip() or (Path.home()/"Music"))
+        music_root = Path(self.dest.get().strip() or (Path.home()+"Music"))
         ensure_dir(music_root)
         cap = self.max_kbps.get(); max_kbps = None if cap == "No limit" else int(cap)
         logging.info("DB worker: items=%d, kbps=%s", len(sel_indices), cap)
@@ -1270,13 +1253,15 @@ class App(tk.Tk):
                 self.after(0, lambda: self._set_task_title(key, f"[Song] {artist} - {ttl}"))
 
                 hooks = [self._db_hook(key, 1, 1)]
-                base_opts = make_ydl_common(self.ff_loc, self.cookies_browser.get() or None, allow_playlists=False,
+                base_opts = make_ydl_common(self.ff_loc, allow_playlists=False,
                                             hooks=hooks, max_abr_kbps=max_kbps, url_video_mp4=False,
                                             log_name=f"yt-dlp:{key}")
-                outtmpl = str(music_root / "%(title)s.%(ext)s")
+                outtmpl = str(music_root / "% (title)s.%(ext)s")
                 info, used = extract_with_retries(f"ytsearch1:{artist} - {ttl} audio", base_opts, outtmpl=outtmpl)
                 logging.info("DB song success via: %s", used)
                 produced, entry = yt_first_match(f"{artist} - {ttl}", base_opts, music_root, is_video=False, ff_loc=self.ff_loc)
+                final_path = music_root / f"{artist} - {ttl}.mp3"
+                self.per_task[key]["final_path"] = final_path
                 cover = fetch_cover_from_caa(chosen.get("id")) or fetch_cover_from_wikipedia(album, artist) or fetch_thumbnail_bytes(entry if isinstance(entry, dict) else info)
                 meta = {"title": ttl, "artist": artist, "album": album, "year": year, "track": track_no}
                 self._move_and_tag(produced, meta, entry if isinstance(entry, dict) else info, cover_override=cover)
@@ -1308,223 +1293,7 @@ class App(tk.Tk):
         except Exception:
             logging.exception("Unhandled error (DB): %s", key); return "Failed", key
 
-    # ---- Torrent functionality ----
-    def search_torrents(self):
-        query = self.torrent_search.get().strip()
-        year = self.torrent_year.get().strip()
-        director = self.torrent_director.get().strip()
-        quality = self.torrent_quality.get()
-        language = self.torrent_language.get()
-        subtitles = self.torrent_subtitles.get()
-        
-        if not query:
-            messagebox.showwarning("Missing", "Enter a search term.")
-            return
-        
-        self.torrent_results.delete(0, "end")
-        self.torrent_items.clear()
-        self.ui_status("Searching torrents...")
-        
-        # Start torrent search in background thread
-        threading.Thread(target=self._torrent_search_worker, args=(query, year, director, quality, language, subtitles), daemon=True).start()
-    
-    def _torrent_search_worker(self, query, year="", director="", quality="Any", language="Any", subtitles="Any"):
-        try:
-            # Mock torrent search with intelligent filtering
-            # In real implementation, you'd use APIs like:
-            # - The Pirate Bay API
-            # - 1337x API
-            # - RARBG API
-            # - Torrentz2 API
-            
-            # Generate results based on query and filters
-            mock_results = self._generate_torrent_results(query, year, director, quality, language, subtitles)
-            
-            for result in mock_results:
-                line = f"{result['title']} | Size: {result['size']} | Seeds: {result['seeds']} | Leech: {result['leech']}"
-                self.after(0, lambda r=result, l=line: self.torrent_results.insert("end", l))
-                self.after(0, lambda r=result: self.torrent_items.append(r))
-            
-            self.after(0, lambda: self.ui_status(f"Found {len(mock_results)} torrent results"))
-            
-        except Exception as e:
-            logging.exception("Torrent search failed")
-            self.after(0, lambda: self.ui_status("Torrent search failed"))
-    
-    def _generate_torrent_results(self, query, year="", director="", quality="Any", language="Any", subtitles="Any"):
-        """Generate realistic torrent results based on search criteria"""
-        query_lower = query.lower()
-        
-        # Special handling for Titanic
-        if "titanic" in query_lower:
-            results = []
-            if year == "1997" or not year:
-                # Generate multiple quality options for Titanic 1997
-                qualities = ["360p", "480p", "720p", "1080p", "4K"] if quality == "Any" else [quality]
-                for q in qualities:
-                    if q == "360p":
-                        size, seeds = "1.2 GB", 89
-                    elif q == "480p":
-                        size, seeds = "2.1 GB", 134
-                    elif q == "720p":
-                        size, seeds = "4.2 GB", 189
-                    elif q == "1080p":
-                        size, seeds = "8.7 GB", 245
-                    elif q == "4K":
-                        size, seeds = "15.3 GB", 67
-                    else:
-                        continue
-                    
-                    lang_suffix = f" [{language}]" if language != "Any" else ""
-                    sub_suffix = f" [{subtitles} Subs]" if subtitles != "Any" and subtitles != "None" else ""
-                    
-                    results.append({
-                        "title": f"Titanic (1997) [{q} BluRay] - James Cameron{lang_suffix}{sub_suffix}",
-                        "size": size,
-                        "seeds": seeds,
-                        "leech": max(5, seeds // 10),
-                        "magnet": f"magnet:?xt=urn:btih:titanic1997_{q.lower()}&dn=Titanic+1997+{q}&tr=udp://tracker.example.com:1337",
-                        "torrent_url": f"https://example.com/titanic1997_{q.lower()}.torrent"
-                    })
-            if year == "2023" or not year:
-                results.append({
-                    "title": f"Titanic Documentary (2023) [1080p]{f' [{language}]' if language != 'Any' else ''}{f' [{subtitles} Subs]' if subtitles != 'Any' and subtitles != 'None' else ''}",
-                    "size": "1.8 GB",
-                    "seeds": 45,
-                    "leech": 8,
-                    "magnet": f"magnet:?xt=urn:btih:titanic2023&dn=Titanic+Documentary+2023&tr=udp://tracker.example.com:1337",
-                    "torrent_url": "https://example.com/titanic2023.torrent"
-                })
-            return results
-        
-        # Generic movie results
-        results = []
-        if year:
-            # Generate multiple quality options
-            qualities = ["360p", "480p", "720p", "1080p", "4K"] if quality == "Any" else [quality]
-            for q in qualities:
-                if q == "360p":
-                    size, seeds = "1.5 GB", 78
-                elif q == "480p":
-                    size, seeds = "2.8 GB", 112
-                elif q == "720p":
-                    size, seeds = "3.2 GB", 156
-                elif q == "1080p":
-                    size, seeds = "6.5 GB", 198
-                elif q == "4K":
-                    size, seeds = "12.1 GB", 45
-                else:
-                    continue
-                
-                lang_suffix = f" [{language}]" if language != "Any" else ""
-                sub_suffix = f" [{subtitles} Subs]" if subtitles != "Any" and subtitles != "None" else ""
-                
-                results.append({
-                    "title": f"{query} ({year}) [{q} BluRay]{lang_suffix}{sub_suffix}",
-                    "size": size,
-                    "seeds": seeds,
-                    "leech": max(5, seeds // 8),
-                    "magnet": f"magnet:?xt=urn:btih:{query.lower().replace(' ', '')}{year}_{q.lower()}&dn={query}+{year}+{q}&tr=udp://tracker.example.com:1337",
-                    "torrent_url": f"https://example.com/{query.lower().replace(' ', '')}{year}_{q.lower()}.torrent"
-                })
-        else:
-            # Multiple years if no year specified
-            for y in ["2023", "2022", "2021", "2020"]:
-                qualities = ["720p", "1080p"] if quality == "Any" else [quality]
-                for q in qualities:
-                    if q == "720p":
-                        size, seeds = "3.2 GB", 120 - (2023-int(y))*10
-                    elif q == "1080p":
-                        size, seeds = "6.5 GB", 150 - (2023-int(y))*15
-                    else:
-                        continue
-                    
-                    lang_suffix = f" [{language}]" if language != "Any" else ""
-                    sub_suffix = f" [{subtitles} Subs]" if subtitles != "Any" and subtitles != "None" else ""
-                    
-                    results.append({
-                        "title": f"{query} ({y}) [{q}]{lang_suffix}{sub_suffix}",
-                        "size": size,
-                        "seeds": seeds,
-                        "leech": max(5, seeds // 6),
-                        "magnet": f"magnet:?xt=urn:btih:{query.lower().replace(' ', '')}{y}_{q.lower()}&dn={query}+{y}+{q}&tr=udp://tracker.example.com:1337",
-                        "torrent_url": f"https://example.com/{query.lower().replace(' ', '')}{y}_{q.lower()}.torrent"
-                    })
-        
-        # Add director-specific results if director is specified
-        if director:
-            for result in results[:]:
-                if director.lower() not in result["title"].lower():
-                    result["title"] = f"{result['title']} - {director}"
-        
-        return results[:8]  # Limit to 8 results
-    
-    def download_selected_torrents(self):
-        sel = list(self.torrent_results.curselection())
-        if not sel:
-            messagebox.showwarning("No selection", "Select at least one torrent.")
-            return
-        
-        # Start torrent downloads
-        threading.Thread(target=self._torrent_download_worker, args=(sel,), daemon=True).start()
-    
-    def _torrent_download_worker(self, sel_indices):
-        for idx in sel_indices:
-            torrent = self.torrent_items[idx]
-            key = f"torrent::{idx}"
-            self._create_task_row(key, f"[Torrent] {torrent['title']}")
-            
-            try:
-                # In a real implementation, you would:
-                # 1. Use a torrent client library like libtorrent-python
-                # 2. Add the magnet link or torrent file to the client
-                # 3. Monitor download progress
-                
-                # For now, we'll simulate the download with realistic data
-                import time
-                import random
-                
-                # Parse file size from torrent info
-                size_str = torrent.get('size', '2.1 GB')
-                size_bytes = self._parse_size_to_bytes(size_str)
-                
-                # Simulate realistic download with varying speeds
-                downloaded = 0
-                for i in range(101):
-                    if self.per_task.get(key, {}).get("cancel"):
-                        self._finish_task(key, "Cancelled")
-                        return
-                    
-                    # Simulate realistic download speed (varies between 1-10 MB/s)
-                    speed_mbps = random.uniform(1.0, 10.0)
-                    speed_bps = speed_mbps * 1024 * 1024
-                    
-                    # Calculate progress
-                    progress = i
-                    downloaded = int(size_bytes * progress / 100)
-                    
-                    # Calculate ETA
-                    remaining_bytes = size_bytes - downloaded
-                    eta_seconds = remaining_bytes / speed_bps if speed_bps > 0 else 0
-                    eta_str = f"{int(eta_seconds)}s" if eta_seconds < 60 else f"{int(eta_seconds/60)}m"
-                    
-                    # Simulate peer/seed numbers
-                    seeds = random.randint(50, 200)
-                    leeches = random.randint(5, 50)
-                    peers_str = f"{seeds}↑ {leeches}↓"
-                    
-                    # Update progress with detailed info
-                    self.after(0, lambda k=key, p=progress, s=f"{speed_mbps:.1f} MB/s", 
-                              fs=size_str, peers=peers_str, eta=eta_str: 
-                              self._update_task_progress(k, p, speed=s, file_size=fs, peers=peers, eta=eta))
-                    
-                    time.sleep(0.1)
-                
-                self._finish_task(key, "Done")
-                
-            except Exception as e:
-                logging.exception("Torrent download failed")
-                self._finish_task(key, "Failed")
+
     
     def _parse_size_to_bytes(self, size_str):
         """Convert size string like '2.1 GB' to bytes"""
