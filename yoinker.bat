@@ -8,3 +8,4 @@ python prepare_ffmpeg.py
 
 echo Running yoinker.py...
 python yoinker.py
+ 

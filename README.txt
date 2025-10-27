@@ -14,7 +14,7 @@ Yoinker is a Python application that allows you to download music and videos fro
 - `README.txt`: This file.
 
 ## Installation
-
+ 
 To install and run Yoinker, follow these steps:
 
 1.  Run the `install_all.bat` script as an administrator. This will install all the required software.

@@ -14,7 +14,7 @@ echo WARNING: Failed to install %PYTHON_ID%. Trying generic Python.Python.3...
 set "PYTHON_ID=Python.Python.3"
 winget install -e --id "%PYTHON_ID%" --accept-package-agreements --silent --disable-interactivity
 echo.
-)
+) 
 
 echo Checking if Python is now available...
 where python >nul 2>nul

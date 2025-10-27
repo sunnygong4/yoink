@@ -12,7 +12,7 @@ Notes:
 - Default install directory: %LOCALAPPDATA%\\MP3Grabber\\ffmpeg
 - Writes ffmpeg_location.txt next to this script for your app to read if desired.
 """
-
+ 
 import argparse
 import ctypes
 import os
