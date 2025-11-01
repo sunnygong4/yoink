@@ -9,28 +9,34 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
 import time
- 
+import json
+import tempfile
+
+try:
+    import requests
+    import musicbrainzngs as mb
+    from yt_dlp import YoutubeDL, DownloadError
+    from mutagen.easyid3 import EasyID3
+    from mutagen.id3 import ID3, APIC, USLT
+    from mutagen.mp3 import MP3
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox, simpledialog
+except ImportError:
+    print("Missing required libraries. Running setup...")
+    try:
+        subprocess.check_call([sys.executable, "setup.py"])
+        print("Setup complete. Restarting application...")
+        os.execv(sys.executable, ['python'] + sys.argv)
+    except subprocess.CalledProcessError:
+        print("Setup failed. Please run setup.py manually.")
+        sys.exit(1)
+    except FileNotFoundError:
+        print("setup.py not found. Please ensure it is in the same directory.")
+        sys.exit(1)
 
 
-import requests
-import musicbrainzngs as mb
-from yt_dlp import YoutubeDL, DownloadError
-from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, APIC
-from mutagen.mp3 import MP3
 
-class WidgetLogHandler(logging.Handler):
-    def __init__(self, widget):
-        logging.Handler.__init__(self)
-        self.widget = widget
-
-    def emit(self, record):
-        msg = self.format(record)
-        self.widget.after(0, self.widget.insert, tk.END, msg + '\n')
-        self.widget.after(0, self.widget.see, tk.END)
 
 APP_NAME = "Yoinker"
 APP_VER = "3.0"  # Torrent support, UI redesign, unified interface
@@ -88,12 +94,12 @@ def _which_ffmpeg(ff_loc: str | None) -> str | None:
     return which("ffmpeg")
 
 def tag_mp3(file_path: Path, *, title=None, artist=None, album=None,
-            album_artist=None, track_number=None, year=None, cover_bytes=None):
+            album_artist=None, track_number=None, year=None, cover_bytes=None, lyrics=None):
     try:
-        try:
-            audio = MP3(file_path.as_posix(), ID3=ID3); audio.add_tags()
-        except Exception:
-            pass
+        audio = MP3(file_path.as_posix(), ID3=ID3)
+        if audio.tags is None:
+            audio.add_tags()
+        
         tags = EasyID3(file_path.as_posix())
         if title: tags["title"] = str(title)
         if artist: tags["artist"] = str(artist)
@@ -103,15 +109,27 @@ def tag_mp3(file_path: Path, *, title=None, artist=None, album=None,
         if track_number: tags["tracknumber"] = str(track_number)
         if year: tags["date"] = str(year)
         tags.save()
+
+        # For cover art and lyrics, we need to use the full ID3 object
+        audio = MP3(file_path.as_posix(), ID3=ID3)
         if cover_bytes:
-            audio = MP3(file_path.as_posix(), ID3=ID3)
             try:
                 for k in list(audio.tags.keys()):
                     if k.startswith("APIC"): del audio.tags[k]
             except Exception:
                 pass
             audio.tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=cover_bytes))
-            audio.save()
+        
+        if lyrics:
+            try:
+                for k in list(audio.tags.keys()):
+                    if k.startswith("USLT"): del audio.tags[k]
+            except Exception:
+                pass
+            audio.tags.add(USLT(encoding=3, lang='eng', desc='desc', text=lyrics))
+
+        audio.save()
+
     except Exception:
         logging.exception("Tagging failed for %s", file_path)
 
@@ -130,6 +148,24 @@ def fetch_thumbnail_bytes(info: dict) -> bytes | None:
         if r.ok and r.content: return r.content
     except Exception:
         logging.exception("Thumbnail fetch failed: %s", url)
+    return None
+
+def fetch_lyrics(artist: str, title: str) -> str | None:
+    """Fetches lyrics from lyrics.ovh."""
+    if not artist or not title:
+        return None
+    try:
+        url = f"https://api.lyrics.ovh/v1/{artist}/{title}"
+        r = requests.get(url, timeout=20)
+        if r.ok:
+            data = r.json()
+            lyrics = data.get("lyrics")
+            if lyrics:
+                logging.info(f"Lyrics found for {artist} - {title}")
+                return lyrics.strip()
+        logging.warning(f"No lyrics found for {artist} - {title} (status: {r.status_code})")
+    except Exception:
+        logging.exception(f"Lyrics fetch failed for {artist} - {title}")
     return None
 
 # --- Cover Art helpers ---
@@ -305,19 +341,45 @@ def _variants_for_yt():
 
 def extract_with_retries(id_or_url: str, base_opts: dict, *, outtmpl: str):
     last_err = None
-    for note, extra in _variants_for_yt():
-        opts = dict(base_opts); opts.update(extra); opts["outtmpl"] = outtmpl
-        logging.info("yt-dlp try variant: %s", note)
-        try:
-            with YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(id_or_url, download=True)
-            return info, note
-        except DownloadError as de:
-            last_err = de
-            logging.warning("yt-dlp variant failed (%s): %s", note, de)
-        except Exception as e:
-            last_err = e
-            logging.exception("yt-dlp variant error (%s)", note)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for note, extra in _variants_for_yt():
+            opts = dict(base_opts)
+            opts.update(extra)
+            opts["outtmpl"] = str(Path(tmpdir) / "%(title)s.%(ext)s")
+            logging.info("yt-dlp try variant: %s", note)
+            try:
+                with YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(id_or_url, download=True)
+                
+                # Move the downloaded file to the final destination
+                downloaded_files = list(Path(tmpdir).glob("*"))
+                if downloaded_files:
+                    original_path = max(downloaded_files, key=lambda p: p.stat().st_mtime)
+                    
+                    # Use the parent of the outtmpl as the destination directory
+                    dest_dir = Path(outtmpl).parent
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    final_path = dest_dir / original_path.name
+                    
+                    shutil.move(original_path, final_path)
+                    if info:
+                        # Update info dict with the final path
+                        if 'entries' in info and info['entries']:
+                            info['entries'][0]['filepath'] = str(final_path)
+                        else:
+                            info["filepath"] = str(final_path)
+                        
+                        if 'requested_downloads' in info and info['requested_downloads']:
+                            info['requested_downloads'][0]['filepath'] = str(final_path)
+
+                return info, note
+            except DownloadError as de:
+                last_err = de
+                logging.warning("yt-dlp variant failed (%s): %s", note, de)
+            except Exception as e:
+                last_err = e
+                logging.exception("yt-dlp variant error (%s)", note)
     raise last_err or RuntimeError("All yt-dlp variants failed")
 
 def _resolve_downloaded_paths(info, root: Path):
@@ -365,44 +427,57 @@ def ensure_mp3_from_any(source_path: Path, ff_loc: str | None, target_dir: Path)
 def yt_first_match(query: str, ydl_common: dict, music_root: Path, is_video: bool = False, ff_loc: str | None = None):
     q = f"ytsearch1:{query} audio" if not is_video else f"ytsearch1:{query}"
     base_opts = dict(ydl_common)
-    outtmpl = str(music_root / "% (title)s.%(ext)s")
-    info, used = extract_with_retries(q, base_opts, outtmpl=outtmpl)
-    logging.info("yt-dlp search success via: %s", used)
-    paths = _resolve_downloaded_paths(info, music_root)
-    # Fallback: sometimes yt-dlp search returns info without producing a file (no paths).
-    # Try downloading the direct first-entry webpage URL if available and re-resolve paths.
-    if not paths:
+    outtmpl = str(music_root / "%(title)s.%(ext)s")
+    
+    info, used = None, None
+    try:
+        info, used = extract_with_retries(q, base_opts, outtmpl=outtmpl)
+        if info:
+            logging.info("yt-dlp search success via: %s", used)
+    except Exception as e:
+        logging.error("yt-dlp search failed for query '%s': %s", query, e)
+
+    paths = _resolve_downloaded_paths(info, music_root) if info else []
+
+    if not paths and info and isinstance(info, dict) and info.get("entries"):
         try:
-            # If search returned a playlist/search result with entries, try first entry directly
-            if isinstance(info, dict) and info.get("entries"):
-                first = info["entries"][0]
-                target = first.get("webpage_url") or first.get("url")
-                if target:
-                    logging.info("No paths from search; retrying direct download of first entry: %s", target)
-                    info2, used2 = extract_with_retries(target, base_opts, outtmpl=outtmpl)
+            first = info["entries"][0]
+            target = first.get("webpage_url") or first.get("url")
+            if target:
+                logging.info("No paths from search; retrying direct download of first entry: %s", target)
+                info2, used2 = extract_with_retries(target, base_opts, outtmpl=outtmpl)
+                if info2:
                     paths = _resolve_downloaded_paths(info2, music_root)
                     if paths:
                         info = info2
                         logging.info("Direct entry download success via: %s", used2)
         except Exception:
             logging.exception("Fallback direct-entry download failed for query: %s", query)
+
     if not paths:
         raise FileNotFoundError("No file produced by search download (no paths reported).")
+
     if is_video:
         for p in paths:
-            if p.suffix.lower() in (".mp4",".mkv",".webm"): return p, info
+            if p.suffix.lower() in (".mp4", ".mkv", ".webm"):
+                return p, info
         vids = list(music_root.glob("*.mp4")) + list(music_root.glob("*.mkv")) + list(music_root.glob("*.webm"))
-        if vids: return max(vids, key=lambda p: p.stat().st_mtime), info
+        if vids:
+            return max(vids, key=lambda p: p.stat().st_mtime), info
         raise FileNotFoundError("No video produced by download.")
+
     for p in paths:
-        if p.suffix.lower() == ".mp3": return p, info
+        if p.suffix.lower() == ".mp3":
+            return p, info
     for p in paths:
-        if p.suffix.lower() in (".m4a",".webm",".opus",".mp4"):
+        if p.suffix.lower() in (".m4a", ".webm", ".opus", ".mp4"):
             mp3 = ensure_mp3_from_any(p, ff_loc, music_root)
             return mp3, info
+            
     mp3s = list(music_root.glob("*.mp3"))
     if mp3s:
         return max(mp3s, key=lambda p: p.stat().st_mtime), info
+        
     raise FileNotFoundError("No MP3 produced; postprocess/transcode failed.")
 
 # ---------- Update check ----------
@@ -447,7 +522,144 @@ def check_and_update_ytdlp() -> str:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(APP_NAME)
+
+        self.i18n = {
+            'en': {
+                "title": "Yoinker",
+                "destination": "Destination (Music Root)",
+                "browse": "Browse…",
+                "song_downloader": "Song Downloader",
+                "youtube_downloader": "Download from Youtube/Bilibili",
+                "download_options": "Download Options",
+                "mode": "Mode:",
+                "audio_quality": "Audio Quality:",
+                "video_quality": "Video Quality:",
+                "clear": "Clear",
+                "download": "Download",
+                "search": "Search",
+                "song_album_name": "Song/Album Name:",
+                "artist": "Artist:",
+                "find_song": "Find Song",
+                "find_album": "Find Album",
+                "download_selected": "Download Selected",
+                "task_progress": "Task Progress",
+                "fetch_lyrics": "Fetch Lyrics",
+                "file": "File",
+                "exit": "Exit",
+                "settings": "Settings",
+                "resolution": "Resolution",
+                "text_size": "Text Size",
+                "language": "Language",
+                "english": "English",
+                "chinese_simplified": "Chinese (Simplified)",
+                "chinese_traditional": "Chinese (Traditional)",
+                "french": "French",
+                "auto": "Auto",
+            },
+            'zh': {
+                "title": "Yoinker音乐下载器",
+                "destination": "目标路径 (音乐根目录)",
+                "browse": "浏览…",
+                "song_downloader": "歌曲下载器",
+                "youtube_downloader": "从Youtube/Bilibili下载",
+                "download_options": "下载选项",
+                "mode": "模式:",
+                "audio_quality": "音质:",
+                "video_quality": "视频质量:",
+                "clear": "清除",
+                "download": "下载",
+                "search": "搜索",
+                "song_album_name": "歌曲/专辑名称:",
+                "artist": "艺术家:",
+                "find_song": "查找歌曲",
+                "find_album": "查找专辑",
+                "download_selected": "下载选中项",
+                "task_progress": "任务进度",
+                "fetch_lyrics": "获取歌词",
+                "file": "文件",
+                "exit": "退出",
+                "settings": "设置",
+                "resolution": "分辨率",
+                "text_size": "字体大小",
+                "language": "语言",
+                "english": "English",
+                "chinese_simplified": "简体中文",
+                "chinese_traditional": "繁體中文",
+                "french": "Français",
+                "auto": "自动",
+            },
+            'zh_TW': {
+                "title": "Yoinker音樂下載器",
+                "destination": "目標路徑 (音樂根目錄)",
+                "browse": "瀏覽…",
+                "song_downloader": "歌曲下載器",
+                "youtube_downloader": "從Youtube/Bilibili下載",
+                "download_options": "下載選項",
+                "mode": "模式:",
+                "audio_quality": "音質:",
+                "video_quality": "視頻質量:",
+                "clear": "清除",
+                "download": "下載",
+                "search": "搜索",
+                "song_album_name": "歌曲/專輯名稱:",
+                "artist": "藝術家:",
+                "find_song": "查找歌曲",
+                "find_album": "查找專輯",
+                "download_selected": "下載選中項",
+                "task_progress": "任務進度",
+                "fetch_lyrics": "獲取歌詞",
+                "file": "文件",
+                "exit": "退出",
+                "settings": "設置",
+                "resolution": "分辨率",
+                "text_size": "字體大小",
+                "language": "語言",
+                "english": "English",
+                "chinese_simplified": "简体中文",
+                "chinese_traditional": "繁體中文",
+                "french": "Français",
+                "auto": "自動",
+            },
+            'fr': {
+                "title": "Yoinker",
+                "destination": "Destination (Racine de la musique)",
+                "browse": "Parcourir…",
+                "song_downloader": "Téléchargeur de chansons",
+                "youtube_downloader": "Télécharger depuis Youtube/Bilibili",
+                "download_options": "Options de téléchargement",
+                "mode": "Mode:",
+                "audio_quality": "Qualité audio:",
+                "video_quality": "Qualité vidéo:",
+                "clear": "Effacer",
+                "download": "Télécharger",
+                "search": "Rechercher",
+                "song_album_name": "Nom de la chanson/album:",
+                "artist": "Artiste:",
+                "find_song": "Trouver une chanson",
+                "find_album": "Trouver un album",
+                "download_selected": "Télécharger la sélection",
+                "task_progress": "Progression de la tâche",
+                "fetch_lyrics": "Obtenir les paroles",
+                "file": "Fichier",
+                "exit": "Quitter",
+                "settings": "Paramètres",
+                "resolution": "Résolution",
+                "text_size": "Taille du texte",
+                "language": "Langue",
+                "english": "Anglais",
+                "chinese_simplified": "Chinois (simplifié)",
+                "chinese_traditional": "Chinois (traditionnel)",
+                "french": "Français",
+                "auto": "Auto",
+            }
+        }
+        self.lang = "en"
+        self.config_dir = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Yoinker"
+        self.config_file = self.config_dir / "config.json"
+        self.load_config()
+
+
+        self.title(self.i18n[self.lang]["title"])
         self.geometry("1060x780")
         self.minsize(920, 660)
         self.ff_loc = read_ffmpeg_location()
@@ -465,6 +677,43 @@ class App(tk.Tk):
 
     def build(self):
         pad = 8
+
+        # Destroy previous widgets if rebuilding
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        # Menu bar
+        self.menubar = tk.Menu(self)
+        self.config(menu=self.menubar)
+
+        self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label=self.i18n[self.lang]["file"], menu=self.file_menu)
+        self.file_menu.add_command(label=self.i18n[self.lang]["exit"], command=self.destroy)
+
+        self.settings_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label=self.i18n[self.lang]["settings"], menu=self.settings_menu)
+
+        resolution_menu = tk.Menu(self.settings_menu, tearoff=0)
+        self.settings_menu.add_cascade(label=self.i18n[self.lang]["resolution"], menu=resolution_menu)
+        resolution_menu.add_command(label=self.i18n[self.lang]["auto"], command=self.set_auto_resolution)
+        resolution_menu.add_command(label="1060x780", command=lambda: self.geometry("1060x780"))
+        resolution_menu.add_command(label="1280x720", command=lambda: self.geometry("1280x720"))
+        resolution_menu.add_command(label="1920x1080", command=lambda: self.geometry("1920x1080"))
+
+        text_size_menu = tk.Menu(self.settings_menu, tearoff=0)
+        self.settings_menu.add_cascade(label=self.i18n[self.lang]["text_size"], menu=text_size_menu)
+        text_size_menu.add_command(label=self.i18n[self.lang]["auto"], command=self.set_auto_text_size)
+        text_size_menu.add_command(label="Small", command=lambda: self.set_text_size(8))
+        text_size_menu.add_command(label="Medium", command=lambda: self.set_text_size(10))
+        text_size_menu.add_command(label="Large", command=lambda: self.set_text_size(12))
+
+        self.lang_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label=self.i18n[self.lang]["language"], menu=self.lang_menu)
+        self.lang_menu.add_command(label=self.i18n[self.lang]["english"], command=lambda: self.set_language('en'))
+        self.lang_menu.add_command(label=self.i18n[self.lang]["chinese_simplified"], command=lambda: self.set_language('zh'))
+        self.lang_menu.add_command(label=self.i18n[self.lang]["chinese_traditional"], command=lambda: self.set_language('zh_TW'))
+        self.lang_menu.add_command(label=self.i18n[self.lang]["french"], command=lambda: self.set_language('fr'))
+
         # Main container with left and right panels
         main_container = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main_container.pack(fill="both", expand=True, padx=pad, pady=pad)
@@ -478,24 +727,27 @@ class App(tk.Tk):
         main_container.add(right_panel, weight=1)
         
         # Music root
-        top = ttk.LabelFrame(left_panel, text="Destination (Music Root)")
-        top.pack(fill="x", padx=0, pady=(0, pad))
+        self.top_label = ttk.LabelFrame(left_panel, text=self.i18n[self.lang]["destination"])
+        self.top_label.pack(fill="x", padx=0, pady=(0, pad))
         self.dest = tk.StringVar(value=str(Path.home() / "Music"))
-        ttk.Entry(top, textvariable=self.dest).pack(side="left", fill="x", expand=True, padx=(pad, 4), pady=pad)
-        ttk.Button(top, text="Browse…", command=self.choose_dest).pack(side="left", padx=(4, pad), pady=pad)
+        ttk.Entry(self.top_label, textvariable=self.dest).pack(side="left", fill="x", expand=True, padx=(pad, 4), pady=pad)
+        self.browse_button = ttk.Button(self.top_label, text=self.i18n[self.lang]["browse"], command=self.choose_dest)
+        self.browse_button.pack(side="left", padx=(4, pad), pady=pad)
 
         # Set default values for removed options
         self.use_mb = tk.BooleanVar(value=True)
         self.use_playlist_index = tk.BooleanVar(value=True)
         self.cookies_browser = tk.StringVar(value="chrome")
         self.max_kbps = tk.StringVar(value="192")
+        self.fetch_lyrics = tk.BooleanVar(value=True)
+        self.download_playlist = tk.BooleanVar(value=False)
 
         # Notebook
-        nb = ttk.Notebook(left_panel); nb.pack(fill="both", expand=True, padx=0, pady=(0, pad))
-        self.tab_search = ttk.Frame(nb); self.tab_urls = ttk.Frame(nb); self.tab_torrents = ttk.Frame(nb)
-        nb.add(self.tab_search, text="Song Downloader")
-        nb.add(self.tab_urls, text="Download from Youtube/Bilibili")
-        nb.select(self.tab_search)
+        self.nb = ttk.Notebook(left_panel); self.nb.pack(fill="both", expand=True, padx=0, pady=(0, pad))
+        self.tab_search = ttk.Frame(self.nb); self.tab_urls = ttk.Frame(self.nb); self.tab_torrents = ttk.Frame(self.nb)
+        self.nb.add(self.tab_search, text=self.i18n[self.lang]["song_downloader"])
+        self.nb.add(self.tab_urls, text=self.i18n[self.lang]["youtube_downloader"])
+        self.nb.select(self.tab_search)
 
         # URL tab
         self.urls_text = tk.Text(self.tab_urls, height=12, wrap="word")
@@ -507,38 +759,38 @@ class App(tk.Tk):
         self.urls_text.pack(fill="both", expand=True, padx=pad, pady=(pad, 0))
         
         # URL tab options
-        url_options = ttk.LabelFrame(self.tab_urls, text="Download Options")
-        url_options.pack(fill="x", padx=pad, pady=(6, 0))
+        self.url_options = ttk.LabelFrame(self.tab_urls, text=self.i18n[self.lang]["download_options"])
+        self.url_options.pack(fill="x", padx=pad, pady=(6, 0))
         
         # Mode selector
-        mode_frame = ttk.Frame(url_options)
-        mode_frame.pack(fill="x", padx=pad, pady=(pad, 0))
-        ttk.Label(mode_frame, text="Mode:").pack(side="left")
+        mode_frame_url = ttk.Frame(self.url_options)
+        mode_frame_url.pack(fill="x", padx=pad, pady=(pad, 0))
+        ttk.Label(mode_frame_url, text=self.i18n[self.lang]["mode"]).pack(side="left")
         self.url_mode = tk.StringVar(value="MP3")
-        mode_cb = ttk.Combobox(mode_frame, values=["MP3", "MP4"], textvariable=self.url_mode, width=10, state="readonly")
-        mode_cb.pack(side="left", padx=(6, 16))
-        mode_cb.bind("<<ComboboxSelected>>", lambda e: self._switch_url_mode())
+        mode_cb_url = ttk.Combobox(mode_frame_url, values=["MP3", "MP4"], textvariable=self.url_mode, width=10, state="readonly")
+        mode_cb_url.pack(side="left", padx=(6, 16))
+        mode_cb_url.bind("<<ComboboxSelected>>", lambda e: self._switch_url_mode())
+
+        ttk.Checkbutton(mode_frame_url, text="Download Playlist", variable=self.download_playlist).pack(side="left", padx=(16, 0))
         
         # Audio quality options (for MP3 mode)
-        self.url_audio_frame = ttk.Frame(url_options)
+        self.url_audio_frame = ttk.Frame(self.url_options)
         self.url_audio_frame.pack(fill="x", padx=pad, pady=(0, pad))
-        ttk.Label(self.url_audio_frame, text="Audio Quality:").pack(side="left")
+        ttk.Label(self.url_audio_frame, text=self.i18n[self.lang]["audio_quality"]).pack(side="left")
         self.url_max_kbps = tk.StringVar(value="192")
         ttk.Combobox(self.url_audio_frame, values=["96","128","160","192","256","320","No limit"], 
                      textvariable=self.url_max_kbps, width=10, state="readonly").pack(side="left", padx=(6, 0))
         
         # Video quality options (for MP4 mode)
-        self.url_video_frame = ttk.Frame(url_options)
-        ttk.Label(self.url_video_frame, text="Video Quality:").pack(side="left")
+        self.url_video_frame = ttk.Frame(self.url_options)
+        ttk.Label(self.url_video_frame, text=self.i18n[self.lang]["video_quality"]).pack(side="left")
         self.url_video_quality = tk.StringVar(value="720p")
         ttk.Combobox(self.url_video_frame, values=["480p","720p","1080p","1440p","2160p","Best"], 
                      textvariable=self.url_video_quality, width=10, state="readonly").pack(side="left", padx=(6, 0))
         
         bar1 = ttk.Frame(self.tab_urls); bar1.pack(fill="x", padx=pad, pady=(6, pad))
-        ttk.Button(bar1, text="Clear", command=lambda: self.urls_text.delete("1.0", "end")).pack(side="right")
-        ttk.Button(bar1, text="Download", command=self.start_by_url).pack(side="right", padx=(0, 8))
-
-
+        ttk.Button(bar1, text=self.i18n[self.lang]["clear"], command=lambda: self.urls_text.delete("1.0", "end")).pack(side="right")
+        ttk.Button(bar1, text=self.i18n[self.lang]["download"], command=self.start_by_url).pack(side="right", padx=(0, 8))
 
         # Results list
         self.results = tk.Listbox(self.tab_search, height=16, selectmode=tk.EXTENDED)
@@ -546,37 +798,39 @@ class App(tk.Tk):
         self.result_items = []
 
         # Unified Search Area (moved to bottom)
-        search_frame = ttk.LabelFrame(self.tab_search, text="Search")
-        search_frame.pack(fill="x", padx=pad, pady=(0, pad))
+        self.search_frame = ttk.LabelFrame(self.tab_search, text=self.i18n[self.lang]["search"])
+        self.search_frame.pack(fill="x", padx=pad, pady=(0, pad))
         
         # Mode toggle slider and audio quality
-        mode_frame = ttk.Frame(search_frame)
+        mode_frame = ttk.Frame(self.search_frame)
         mode_frame.pack(fill="x", padx=pad, pady=(pad, 0))
-        ttk.Label(mode_frame, text="Mode:").pack(side="left")
+        ttk.Label(mode_frame, text=self.i18n[self.lang]["mode"]).pack(side="left")
         self.mode_var = tk.StringVar(value="Song")
         mode_cb = ttk.Combobox(mode_frame, values=["Song", "Album"], textvariable=self.mode_var, width=10, state="readonly")
         mode_cb.pack(side="left", padx=(6, 16))
         mode_cb.bind("<<ComboboxSelected>>", lambda e: self._switch_mode())
         
-        ttk.Label(mode_frame, text="Audio Quality:").pack(side="left")
+        ttk.Label(mode_frame, text=self.i18n[self.lang]["audio_quality"]).pack(side="left")
         ttk.Combobox(mode_frame, values=["96","128","160","192","256","320","No limit"], 
                      textvariable=self.max_kbps, width=10, state="readonly").pack(side="left", padx=(6, 0))
+
+        ttk.Checkbutton(mode_frame, text=self.i18n[self.lang]["fetch_lyrics"], variable=self.fetch_lyrics).pack(side="left", padx=(16, 0))
         
         # Unified input fields
-        input_frame = ttk.Frame(search_frame)
+        input_frame = ttk.Frame(self.search_frame)
         input_frame.pack(fill="x", padx=pad, pady=(0, pad))
         
         # Configure grid weights
         for i in range(4): input_frame.grid_columnconfigure(i, weight=1)
         
         # Song/Album title field
-        ttk.Label(input_frame, text="Song/Album Name:").grid(row=0, column=0, sticky="e", padx=6, pady=4)
+        ttk.Label(input_frame, text=self.i18n[self.lang]["song_album_name"]).grid(row=0, column=0, sticky="e", padx=6, pady=4)
         self.unified_title = tk.StringVar()
         e_unified_title = ttk.Entry(input_frame, textvariable=self.unified_title)
         e_unified_title.grid(row=0, column=1, sticky="we", padx=(0,8), pady=4)
         
         # Artist field
-        ttk.Label(input_frame, text="Artist:").grid(row=0, column=2, sticky="e", padx=6, pady=4)
+        ttk.Label(input_frame, text=self.i18n[self.lang]["artist"]).grid(row=0, column=2, sticky="e", padx=6, pady=4)
         self.unified_artist = tk.StringVar()
         e_unified_artist = ttk.Entry(input_frame, textvariable=self.unified_artist)
         e_unified_artist.grid(row=0, column=3, sticky="we", padx=(0,8), pady=4)
@@ -584,10 +838,10 @@ class App(tk.Tk):
         # Bottom action buttons
         bottom_frame = ttk.Frame(self.tab_search)
         bottom_frame.pack(fill="x", padx=pad, pady=(pad, 0))
-        self.btn_find = ttk.Button(bottom_frame, text="Find Song", command=self.find_song)
+        self.btn_find = ttk.Button(bottom_frame, text=self.i18n[self.lang]["find_song"], command=self.find_song)
         self.btn_find.pack(side="left", padx=(0, 8))
 
-        ttk.Button(bottom_frame, text="Download Selected", command=self.download_selected_from_db).pack(side="right")
+        ttk.Button(bottom_frame, text=self.i18n[self.lang]["download_selected"], command=self.download_selected_from_db).pack(side="right")
 
         # Status bar
         status_frame = ttk.Frame(left_panel)
@@ -596,7 +850,7 @@ class App(tk.Tk):
         ttk.Label(status_frame, textvariable=self.status, width=44, anchor="e").pack(side="right")
 
         # Task Manager (Right Panel)
-        self.progress_frame = ttk.LabelFrame(right_panel, text="Task Progress")
+        self.progress_frame = ttk.LabelFrame(right_panel, text=self.i18n[self.lang]["task_progress"])
         self.progress_frame.pack(fill="both", expand=True, padx=0, pady=0)
         self.progress_frame_visible = True
 
@@ -709,17 +963,6 @@ class App(tk.Tk):
         info_frame = ttk.Frame(main_frame)
         info_frame.pack(fill="x", pady=(2,0))
 
-        log_frame = ttk.Frame(main_frame)
-        log_frame.pack(fill="x", expand=True, pady=(2,0))
-        log_text = tk.Text(log_frame, height=5, wrap="word", font=("TkDefaultFont", 7))
-        log_text.pack(fill="x", expand=True, side="left")
-        scrollbar = ttk.Scrollbar(log_frame, command=log_text.yview)
-        scrollbar.pack(fill="y", side="right")
-        log_text.config(yscrollcommand=scrollbar.set)
-
-        handler = WidgetLogHandler(log_text)
-        logging.getLogger().addHandler(handler)
-
         # Speed and file info
         speed_label = ttk.Label(info_frame, text="Speed: --", font=("TkDefaultFont", 8))
         speed_label.pack(side="left")
@@ -744,7 +987,6 @@ class App(tk.Tk):
             "file_info_label": file_info_label,
             "peer_info_label": peer_info_label,
             "eta_label": eta_label,
-            "log_text": log_text,
             "cancel": False, 
             "btn": cancel_btn,
             "start_time": None,
@@ -803,7 +1045,7 @@ class App(tk.Tk):
         if eta:
             t["eta_label"]["text"] = f"ETA: {eta}"
         
-        t["log_text"].see(tk.END)
+
         
         # Initialize start time if not set
         if t["start_time"] is None:
@@ -828,9 +1070,9 @@ class App(tk.Tk):
     # ---- Mode + UI helpers ----
     def _switch_mode(self, initial=False):
         if self.mode_var.get() == "Song":
-            self.btn_find.configure(text="Find Song", command=self.find_song)
+            self.btn_find.configure(text=self.i18n[self.lang]["find_song"], command=self.find_song)
         else:
-            self.btn_find.configure(text="Find Album", command=self.find_album)
+            self.btn_find.configure(text=self.i18n[self.lang]["find_album"], command=self.find_album)
     
     def _switch_url_mode(self):
         if self.url_mode.get() == "MP3":
@@ -849,6 +1091,60 @@ class App(tk.Tk):
             setup_logging(Path(d))
 
     def ui_status(self, text): self.after(0, lambda: self.status.set(text))
+
+    def set_language(self, lang):
+        self.lang = lang
+        self.title(self.i18n[self.lang]["title"])
+        self.save_config()
+        self.build()
+
+    def set_text_size(self, size):
+        style = ttk.Style(self)
+        style.configure("TLabel", font=("TkDefaultFont", size))
+        style.configure("TButton", font=("TkDefaultFont", size))
+        style.configure("TCheckbutton", font=("TkDefaultFont", size))
+        style.configure("TRadiobutton", font=("TkDefaultFont", size))
+        style.configure("TCombobox", font=("TkDefaultFont", size))
+        style.configure("TNotebook.Tab", font=("TkDefaultFont", size))
+        style.configure("TLabelframe.Label", font=("TkDefaultFont", size))
+
+    def set_auto_resolution(self):
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        width = int(screen_width * 0.8)
+        height = int(screen_height * 0.8)
+        self.geometry(f"{width}x{height}")
+
+    def set_auto_text_size(self):
+        screen_height = self.winfo_screenheight()
+        # Scale font size based on screen height, with 1080p as baseline for font size 10
+        font_size = int(10 * (screen_height / 1080))
+        if font_size < 8:
+            font_size = 8
+        self.set_text_size(font_size)
+
+    def load_config(self):
+        try:
+            if not self.config_file.exists():
+                return
+            with open(self.config_file, "r") as f:
+                config = json.load(f)
+                self.lang = config.get("language", "en")
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.lang = "en"
+
+    def save_config(self):
+        try:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            config = {"language": self.lang}
+            with open(self.config_file, "w") as f:
+                json.dump(config, f)
+        except Exception as e:
+            logging.error(f"Failed to save config: {e}")
+
+
+
+
 
     # ---- URL tab ----
     def parse_url_lines(self):
@@ -927,45 +1223,35 @@ class App(tk.Tk):
 
     def worker_by_url(self, items):
         music_root = Path(self.dest.get().strip() or (Path.home()+"Music"))
-        
-        for url, hint in items:
-            if "youtube.com" in url or "youtu.be" in url:
-                download_folder = music_root / "Youtube"
-            elif "bilibili.com" in url:
-                download_folder = music_root / "Bilibili"
-            else:
-                download_folder = music_root
+        ensure_dir(music_root)
 
-            ensure_dir(download_folder)
+        max_workers = min(4, len(items))
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futs = []
+            for url, hint in items:
+                is_video = (self.url_mode.get() == "MP4")
+                if is_video:
+                    video_quality = self.url_video_quality.get()
+                    max_kbps = None
+                else:
+                    cap = self.url_max_kbps.get()
+                    max_kbps = None if cap == "No limit" else int(cap)
+                    video_quality = None
 
-            # Get URL-specific settings
-            is_video = (self.url_mode.get() == "MP4")
-            if is_video:
-                video_quality = self.url_video_quality.get()
-                max_kbps = None  # No audio quality limit for video downloads
-            else:
-                cap = self.url_max_kbps.get()
-                max_kbps = None if cap == "No limit" else int(cap)
-                video_quality = None
-                
-            logging.info("URL worker: items=%d, mode=%s, kbps=%s, video_quality=%s", 
-                         len(items), self.url_mode.get(), max_kbps, video_quality)
-
-            max_workers = min(4, len(items))
-            with ThreadPoolExecutor(max_workers=max_workers) as ex:
-                futs = []
                 key = f"url::{url}"
                 self._create_task_row(key, f"URL: {url[:80]}")
-                futs.append(ex.submit(self._download_url_task, key, url, hint, download_folder, max_kbps, is_video, video_quality))
-                for i, f in enumerate(as_completed(futs), start=1):
-                    status, key = f.result()
-                    self.after(0, lambda k=key, s=status: self._finish_task(k, s))
-            self.ui_status("Done ✓")
+                futs.append(ex.submit(self._download_url_task, key, url, hint, music_root, max_kbps, is_video, video_quality))
+            
+            for i, f in enumerate(as_completed(futs), start=1):
+                status, key = f.result()
+                self.after(0, lambda k=key, s=status: self._finish_task(k, s))
+        self.ui_status("Done ✓")
 
     def _download_url_task(self, key, url, title_hint, music_root, max_kbps, is_video, video_quality=None):
         logging.info("Task start (URL): %s", url)
         try:
-            base_opts = make_ydl_common(self.ff_loc, allow_playlists=True,
+            allow_playlist = self.download_playlist.get()
+            base_opts = make_ydl_common(self.ff_loc, allow_playlists=allow_playlist,
                                         max_abr_kbps=max_kbps, url_video_mp4=is_video, log_name=f"yt-dlp:{key}:probe",
                                         video_quality=video_quality)
             with YoutubeDL(base_opts) as ydl:
@@ -1014,6 +1300,12 @@ class App(tk.Tk):
         paths = _resolve_downloaded_paths(info_entry, music_root)
         yt_title = info_entry.get("title") or "Untitled"
 
+        source_site = "Youtube" if "youtube.com" in (info_entry.get("webpage_url") or "") or "youtu.be" in (info_entry.get("webpage_url") or "") else "Bilibili"
+        channel_name = info_entry.get("uploader") or info_entry.get("channel") or "Unknown Channel"
+
+        dest_folder = music_root / source_site / sanitize(channel_name)
+        ensure_dir(dest_folder)
+
         if is_video:
             for p in paths:
                 if p.suffix.lower() in (".mp4",".mkv",".webm"):
@@ -1023,16 +1315,12 @@ class App(tk.Tk):
                 if not vids: raise FileNotFoundError("Output video not found after download.")
                 produced = max(vids, key=lambda p: p.stat().st_mtime)
 
-            artist_hint = info_entry.get("uploader") or info_entry.get("channel") or "Videos"
-            album_hint = info_entry.get("playlist_title") or "Downloads"
             title = title_hint.strip() if title_hint else yt_title
-            folder = Path(self.dest.get()) / sanitize(artist_hint) / sanitize(album_hint)
-            ensure_dir(folder)
-            final_path = folder / f"{sanitize(title)}{produced.suffix}"
+            final_path = dest_folder / f"{sanitize(title)}{produced.suffix}"
             if final_path.exists():
                 k=2
                 while True:
-                    alt = folder / f"{sanitize(title)} ({k}){produced.suffix}"
+                    alt = dest_folder / f"{sanitize(title)} ({k}){produced.suffix}"
                     if not alt.exists(): final_path = alt; break
                     k+=1
             logging.info("Move video %s -> %s", produced, final_path)
@@ -1054,22 +1342,25 @@ class App(tk.Tk):
         if not produced:
             raise FileNotFoundError("Output MP3 not found after download/transcode.")
 
-        meta = None; cover_bytes = None
-        if self.use_mb.get():
-            meta = build_mb_tags(info_entry, title_hint)
-            if meta and meta.get("release_id"):
-                cover_bytes = fetch_cover_from_caa(meta["release_id"])
-        if not meta:
-            artist_hint = info_entry.get("artist") or info_entry.get("uploader") or info_entry.get("channel") or "Unknown Artist"
-            album_hint = info_entry.get("album") or info_entry.get("playlist_title") or "Unknown Album"
-            year_hint = info_entry.get("release_year") or (info_entry.get("upload_date") or "")[:4] or str(datetime.now().year)
-            meta = {"artist": artist_hint, "album": album_hint, "year": year_hint, "track": None,
-                    "title": title_hint.strip() if title_hint else clean_title_for_search(yt_title)}
-        if not cover_bytes:
-            cover_bytes = fetch_cover_from_wikipedia(meta.get("album"), meta.get("artist")) or fetch_thumbnail_bytes(info_entry)
-        self._move_and_tag(produced, meta, info_entry, cover_override=cover_bytes)
+        title = title_hint.strip() if title_hint else clean_title_for_search(yt_title)
+        final_path = dest_folder / f"{sanitize(title)}.mp3"
+        if final_path.exists():
+            k = 2
+            while True:
+                alt = dest_folder / f"{sanitize(title)} ({k}).mp3"
+                if not alt.exists(): final_path = alt; break
+                k += 1
+        logging.info("Move audio %s -> %s", produced, final_path)
+        produced.replace(final_path)
 
-    def _move_and_tag(self, produced_path: Path, meta: dict, source_info: dict | None, cover_override: bytes | None = None):
+        cover_bytes = fetch_thumbnail_bytes(info_entry)
+        try:
+            tag_mp3(final_path, title=title, artist=channel_name, album=info_entry.get("playlist_title") or "From URL", cover_bytes=cover_bytes)
+        except Exception:
+            logging.exception("Tagging failed for %s", final_path)
+        self.ui_status(f"Saved: {final_path.name}")
+
+    def _move_and_tag(self, produced_path: Path, meta: dict, source_info: dict | None, cover_override: bytes | None = None, lyrics: str | None = None):
         album_artist = meta.get("artist") or "Unknown Artist"
         album = meta.get("album") or "Unknown Album"
         year = meta.get("year"); track = meta.get("track")
@@ -1091,7 +1382,7 @@ class App(tk.Tk):
         cover = cover_override if cover_override else fetch_thumbnail_bytes(source_info or {})
         try:
             tag_mp3(final_path, title=title, artist=album_artist, album=album,
-                    album_artist=album_artist, track_number=track, year=year, cover_bytes=cover)
+                    album_artist=album_artist, track_number=track, year=year, cover_bytes=cover, lyrics=lyrics)
         except Exception:
             logging.exception("Tagging failed for %s", final_path)
         self.ui_status(f"Saved: {final_path.name}")
@@ -1257,14 +1548,27 @@ class App(tk.Tk):
                                             hooks=hooks, max_abr_kbps=max_kbps, url_video_mp4=False,
                                             log_name=f"yt-dlp:{key}")
                 outtmpl = str(music_root / "% (title)s.%(ext)s")
-                info, used = extract_with_retries(f"ytsearch1:{artist} - {ttl} audio", base_opts, outtmpl=outtmpl)
-                logging.info("DB song success via: %s", used)
-                produced, entry = yt_first_match(f"{artist} - {ttl}", base_opts, music_root, is_video=False, ff_loc=self.ff_loc)
+                
+                try:
+                    produced, entry = yt_first_match(f"{artist} - {ttl}", base_opts, music_root, is_video=False, ff_loc=self.ff_loc)
+                except FileNotFoundError:
+                    logging.error("Could not find a match for '%s - %s'", artist, ttl)
+                    return "Failed", key
                 final_path = music_root / f"{artist} - {ttl}.mp3"
                 self.per_task[key]["final_path"] = final_path
                 cover = fetch_cover_from_caa(chosen.get("id")) or fetch_cover_from_wikipedia(album, artist) or fetch_thumbnail_bytes(entry if isinstance(entry, dict) else info)
                 meta = {"title": ttl, "artist": artist, "album": album, "year": year, "track": track_no}
-                self._move_and_tag(produced, meta, entry if isinstance(entry, dict) else info, cover_override=cover)
+                
+                lyrics = None
+                if self.fetch_lyrics.get():
+                    self.after(0, lambda: self._update_task_progress(key, -1, subtitle=f"Fetching lyrics for {ttl}..."))
+                    lyrics = fetch_lyrics(artist, ttl)
+                    if lyrics:
+                        self.after(0, lambda: self._update_task_progress(key, -1, subtitle=f"Lyrics found for {ttl}"))
+                    else:
+                        self.after(0, lambda: self._update_task_progress(key, -1, subtitle=f"No lyrics found for {ttl}"))
+
+                self._move_and_tag(produced, meta, entry if isinstance(entry, dict) else info, cover_override=cover, lyrics=lyrics)
                 return "Done", key
 
             elif item["type"] == "album":
@@ -1281,10 +1585,24 @@ class App(tk.Tk):
                     base_opts = make_ydl_common(self.ff_loc, self.cookies_browser.get() or None, allow_playlists=False,
                                                 hooks=hooks, max_abr_kbps=max_kbps, url_video_mp4=False,
                                                 log_name=f"yt-dlp:{key}:{i}/{total}")
-                    produced, entry = yt_first_match(f"{art} - {ttl}", base_opts, music_root, is_video=False, ff_loc=self.ff_loc)
+                    try:
+                        produced, entry = yt_first_match(f"{art} - {ttl}", base_opts, music_root, is_video=False, ff_loc=self.ff_loc)
+                    except FileNotFoundError:
+                        logging.error("Could not find a match for '%s - %s'", art, ttl)
+                        continue
                     cbytes = cover or fetch_thumbnail_bytes(entry if isinstance(entry, dict) else {})
                     meta = {"title": ttl, "artist": art, "album": album, "year": yr, "track": pos}
-                    self._move_and_tag(produced, meta, entry if isinstance(entry, dict) else {}, cover_override=cbytes)
+                    
+                    lyrics = None
+                    if self.fetch_lyrics.get():
+                        self.after(0, lambda: self._update_task_progress(key, -1, subtitle=f"Fetching lyrics for {ttl}..."))
+                        lyrics = fetch_lyrics(art, ttl)
+                        if lyrics:
+                            self.after(0, lambda: self._update_task_progress(key, -1, subtitle=f"Lyrics found for {ttl}"))
+                        else:
+                            self.after(0, lambda: self._update_task_progress(key, -1, subtitle=f"No lyrics found for {ttl}"))
+
+                    self._move_and_tag(produced, meta, entry if isinstance(entry, dict) else {}, cover_override=cbytes, lyrics=lyrics)
                 return "Done", key
         except KeyboardInterrupt:
             logging.info("Task cancelled (DB): %s", key); return "Cancelled", key

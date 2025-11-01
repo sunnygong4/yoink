@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-prepare_ffmpeg.py
-Downloads and installs FFmpeg (ffmpeg.exe + ffprobe.exe) on Windows.
+setup.py
+Installs Python, required libraries, and FFmpeg on Windows.
 
 Usage:
-  python prepare_ffmpeg.py
-  python prepare_ffmpeg.py --install-dir "C:\\Tools\\ffmpeg" --add-to-path
-  python prepare_ffmpeg.py --force
+  python setup.py
+  python setup.py --install-dir "C:\\Tools\\ffmpeg" --add-to-path
+  python setup.py --force
 
 Notes:
-- Default install directory: %LOCALAPPDATA%\\MP3Grabber\\ffmpeg
+- Installs Python via winget if not found.
+- Installs libraries from requirements.txt.
+- Downloads and installs FFmpeg (ffmpeg.exe + ffprobe.exe).
+- Default FFmpeg install directory: %LOCALAPPDATA%\\MP3Grabber\\ffmpeg
 - Writes ffmpeg_location.txt next to this script for your app to read if desired.
 """
- 
+
 import argparse
 import ctypes
 import os
@@ -21,6 +24,7 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+import subprocess
 from pathlib import Path
 
 # ---------- Config ----------
@@ -34,6 +38,7 @@ MIRROR_URLS = [
 
 DEFAULT_INSTALL_DIR = Path(os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "MP3Grabber" / "ffmpeg"
 LOCATION_MARKER = "ffmpeg_location.txt"
+LIBRARIES = ["requests", "musicbrainzngs", "yt-dlp", "mutagen"]
 
 # ---------- Helpers ----------
 def windows() -> bool:
@@ -46,6 +51,25 @@ def is_admin() -> bool:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except Exception:
         return False
+
+def run_command(command: list[str], shell=False):
+    """Runs a command and returns its exit code, prints output."""
+    print(f"[CMD] {' '.join(command)}")
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', shell=shell)
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(output.strip())
+        return process.poll()
+    except FileNotFoundError:
+        print(f"[!] Command not found: {command[0]}")
+        return -1
+    except Exception as e:
+        print(f"[!] An error occurred: {e}")
+        return -1
 
 def human(n: int) -> str:
     for unit in ["B", "KB", "MB", "GB"]:
@@ -122,18 +146,53 @@ def add_to_user_path(install_dir: Path):
         print("[!] Failed to update PATH automatically. You can add this folder manually:")
         print(f"    {install_dir}")
 
-# ---------- Main ----------
-def main():
-    if not windows():
-        print("This helper targets Windows (ffmpeg.exe). On macOS/Linux, install ffmpeg via brew/apt/yum.")
-        return 1
+# ---------- Setup Steps ----------
 
-    parser = argparse.ArgumentParser(description="Download and install FFmpeg for Windows")
-    parser.add_argument("--install-dir", type=Path, default=DEFAULT_INSTALL_DIR, help="Destination for ffmpeg.exe/ffprobe.exe")
-    parser.add_argument("--add-to-path", action="store_true", help="Append install dir to the current user PATH")
-    parser.add_argument("--force", action="store_true", help="Reinstall even if ffmpeg already exists there")
-    args = parser.parse_args()
+def install_python():
+    print("\n--- Python Installation ---")
+    if shutil.which("python"):
+        print("[=] Python is already installed.")
+        return True
 
+    print("[+] Python not found. Attempting to install with winget.")
+    if not shutil.which("winget"):
+        print("[x] winget not found. Please install Python manually from python.org or the Microsoft Store.")
+        return False
+
+    print("[+] Updating winget source...")
+    run_command(["winget", "source", "update"])
+
+    python_ids = ["Python.Python.3.11", "Python.Python.3"]
+    for py_id in python_ids:
+        print(f"[+] Trying to install {py_id}...")
+        cmd = [
+            "winget", "install", "-e", "--id", py_id,
+            "--accept-package-agreements", "--silent", "--disable-interactivity"
+        ]
+        ret = run_command(cmd)
+        if ret == 0 and shutil.which("python"):
+            print(f"[✓] Successfully installed {py_id}.")
+            return True
+        print(f"[!] Failed to install {py_id}. Trying next option...")
+
+    print("[x] Failed to install Python using winget.")
+    print("Please ensure Python is installed and available in your PATH.")
+    return False
+
+def install_libraries():
+    print("\n--- Library Installation ---")
+    print(f"[+] Installing required Python libraries...")
+    python_exe = sys.executable
+    ret = run_command([python_exe, "-m", "pip", "install"] + LIBRARIES)
+    if ret == 0:
+        print("[✓] Libraries installed successfully.")
+        return True
+    else:
+        print("[x] Failed to install libraries. Please run pip install manually.")
+        return False
+
+def install_ffmpeg(args):
+    print("\n--- FFmpeg Installation ---")
     install_dir: Path = args.install_dir
 
     if (install_dir / "ffmpeg.exe").exists() and (install_dir / "ffprobe.exe").exists() and not args.force:
@@ -186,9 +245,34 @@ def main():
 
     print("\n[✓] FFmpeg is ready.")
     print(f"    Folder: {install_dir}")
-    print("    In your Python app, you can set:")
-    print(f'        ydl_opts["ffmpeg_location"] = r"{install_dir}"')
-    print("    Or ensure the folder is on PATH (open a new terminal after --add-to-path).")
+    return 0
+
+# ---------- Main ----------
+def main():
+    if not windows():
+        print("This setup script targets Windows. On macOS/Linux, please install dependencies manually.")
+        return 1
+
+    parser = argparse.ArgumentParser(description="Setup Yoinker environment on Windows.")
+    parser.add_argument("--install-dir", type=Path, default=DEFAULT_INSTALL_DIR, help="Destination for ffmpeg.exe/ffprobe.exe")
+    parser.add_argument("--add-to-path", action="store_true", help="Append FFmpeg install dir to the current user PATH")
+    parser.add_argument("--force", action="store_true", help="Reinstall FFmpeg even if it already exists")
+    args = parser.parse_args()
+
+    # Step 1: Install Python
+    if not install_python():
+        return 1 # Stop if python installation fails
+
+    # Step 2: Install Libraries
+    if not install_libraries():
+        return 1 # Stop if library installation fails
+
+    # Step 3: Install FFmpeg
+    ffmpeg_ret = install_ffmpeg(args)
+    if ffmpeg_ret != 0:
+        return ffmpeg_ret
+
+    print("\n[✓] All setup steps completed successfully!")
     return 0
 
 if __name__ == "__main__":

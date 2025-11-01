@@ -7,22 +7,22 @@ Yoinker is a Python application that allows you to download music and videos fro
 ## Files
 
 - `yoinker.py` The main application file.
-- `requirements.txt` A list of the Python libraries that are required to run the application.
-- `install_all.bat` A batch script that installs all the required software, including Python, the required Python libraries, Apple Music, and the Apple Devices app.
-- `prepare_ffmpeg.py` A Python script that downloads and extracts ffmpeg, which is required for some of the application's functionality.
-- `yoinker.bat` A batch script that runs the `install_all.bat` script, the `prepare_ffmpeg.py` script, and the `yoinker.py` script in order.
-- `README.md` This file.
+- `setup.py`: A Python script that installs Python, all required libraries, and ffmpeg.
+- `yoinker.bat`: A batch script that runs the `setup.py` script and the `yoinker.py` script in order.
+- `README.md`: This file.
 
 ## Installation
  
-To install and run Yoinker, follow these steps
+To install and run Yoinker, simply run the `yoinker.bat` script. This will automatically run the setup script and then start the application.
 
-1.  Run the `install_all.bat` script as an administrator. This will install all the required software.
-2.  Run the `yoinker.bat` script. This will start the application.
+Alternatively, you can run the scripts manually:
+
+1.  Run `python setup.py` to install all dependencies.
+2.  Run `python yoinker.py` to start the application.
 
 ## Usage
 
-Once the application is running, you can use the following features
+Once the application is running, you can use the following features:
 
-- Song Downloader Search for and download songs from the MusicBrainz database.
-- Download from YoutubeBilibili Download videos and audio from YouTube and Bilibili.
+- **Song Downloader**: Search for and download songs from the MusicBrainz database.
+- **Download from Youtube/Bilibili**: Download videos and audio from YouTube and Bilibili.
