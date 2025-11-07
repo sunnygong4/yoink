@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-12 # Use an Intel-based runner for x86_64 compatibility
 
     steps:
     - name: Checkout code
