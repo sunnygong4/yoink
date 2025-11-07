@@ -43,7 +43,7 @@ jobs:
 
     - name: Create DMG
       run: |
-        create-dmg "dist/Yoinker.app"
+        create-dmg "Yoinker.dmg" "dist/Yoinker.app"
 
     - name: Upload DMG Artifact
       uses: actions/upload-artifact@v4
