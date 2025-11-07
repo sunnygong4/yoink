@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import re
 import sys
@@ -88,6 +89,14 @@ def read_ffmpeg_location() -> str | None:
     return None
 
 def _which_ffmpeg(ff_loc: str | None) -> str | None:
+    if getattr(sys, 'frozen', False):
+        # When running as a bundled app, ffmpeg should be in the Resources folder.
+        # sys.executable is in Contents/MacOS, so we go up two levels.
+        bundle_dir = Path(sys.executable).parent.parent
+        frozen_ffmpeg_path = bundle_dir / 'Resources' / 'ffmpeg'
+        if frozen_ffmpeg_path.exists():
+            return str(frozen_ffmpeg_path)
+
     if ff_loc and Path(ff_loc).exists():
         return ff_loc
     from shutil import which
