@@ -18,21 +18,35 @@ jobs:
         python-version: '3.12'
 
     - name: Install Homebrew dependencies
-      run: brew install ffmpeg
+      run: |
+        brew install ffmpeg create-dmg
 
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install "setuptools<81"
-        pip install requests musicbrainzngs yt-dlp mutagen py2app jaraco.text
+        pip install requests musicbrainzngs yt-dlp mutagen pyinstaller
 
-    - name: Build the application
+    - name: Find ffmpeg path
+      id: ffmpeg_path
+      run: echo "path=$(which ffmpeg)" >> $GITHUB_OUTPUT
+
+    - name: Build the application with PyInstaller
       env:
         MACOSX_DEPLOYMENT_TARGET: '10.9'
-      run: python setup.py py2app
+      run: |
+        pyinstaller yoinker.py \
+          --name Yoinker \
+          --windowed \
+          --add-binary "${{ steps.ffmpeg_path.outputs.path }}:." \
+          --hidden-import "jaraco.text" \
+          --noconfirm
+
+    - name: Create DMG
+      run: |
+        create-dmg "dist/Yoinker.app"
 
     - name: Upload DMG Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Yoinker-macOS-App
-        path: dist/*.dmg
+        path: Yoinker.dmg
