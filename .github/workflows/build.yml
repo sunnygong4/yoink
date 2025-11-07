@@ -27,6 +27,8 @@ jobs:
         pip install requests musicbrainzngs yt-dlp mutagen py2app jaraco.text
 
     - name: Build the application
+      env:
+        MACOSX_DEPLOYMENT_TARGET: '10.9'
       run: python setup.py py2app
 
     - name: Upload DMG Artifact

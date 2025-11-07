@@ -25,7 +25,6 @@ DATA_FILES = [ffmpeg_path]
 OPTIONS = {
     'argv_emulation': False,
     'packages': ['requests', 'musicbrainzngs', 'yt_dlp', 'mutagen'],
-    'includes': ['jaraco.text'],
     'plist': {
         'CFBundleName': 'Yoinker',
         'CFBundleDisplayName': 'Yoinker',
