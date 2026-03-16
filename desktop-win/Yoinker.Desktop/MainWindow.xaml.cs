@@ -388,6 +388,20 @@ public partial class MainWindow : Window
         });
     }
 
+    private DiscoverySearchResult? ChooseVersion(HomeResultCard card)
+    {
+        if (card.VersionGroup is null)
+        {
+            return card.PrimaryVersion;
+        }
+
+        var picker = new VersionPickerWindow(card.VersionGroup)
+        {
+            Owner = this,
+        };
+        return picker.ShowDialog() == true ? picker.SelectedVersion : null;
+    }
+
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
         await Guard(async () =>
@@ -450,16 +464,26 @@ public partial class MainWindow : Window
             if (!EnsureConnected()) return;
             var query = CatalogQueryTextBox.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(query)) return;
-            var page = await _api.SearchCatalogAsync(query, ComboValue(CatalogSearchTypeCombo, "song"), CatalogSecondaryQueryTextBox.Text?.Trim());
+            var searchType = ComboValue(CatalogSearchTypeCombo, "song");
             _view.HomeResults.Clear();
-            foreach (var result in page.Items)
+            if (string.Equals(searchType, "song", StringComparison.OrdinalIgnoreCase))
             {
-                var art = result.ArtworkUrl;
-                if (string.IsNullOrWhiteSpace(art) && !string.IsNullOrWhiteSpace(result.BestMatch?.ArtworkUrl))
+                var page = await _api.SearchVersionGroupsAsync(
+                    query,
+                    ComboValue(CatalogSourceCombo, "youtube"),
+                    CatalogSecondaryQueryTextBox.Text?.Trim());
+                foreach (var group in page.Items)
                 {
-                    art = DiscoveryArtwork(result.BestMatch.ArtworkUrl) ?? result.BestMatch.ArtworkUrl;
+                    var art = DiscoveryArtwork(group.ArtworkUrl) ?? group.ArtworkUrl;
+                    _view.HomeResults.Add(new HomeResultCard { VersionGroup = group, ArtworkOverrideUrl = art });
                 }
-                _view.HomeResults.Add(new HomeResultCard { Result = result, ArtworkOverrideUrl = art });
+                return;
+            }
+
+            var catalogPage = await _api.SearchCatalogAsync(query, searchType, CatalogSecondaryQueryTextBox.Text?.Trim());
+            foreach (var result in catalogPage.Items)
+            {
+                _view.HomeResults.Add(new HomeResultCard { Result = result, ArtworkOverrideUrl = result.ArtworkUrl });
             }
         }, "search catalog");
     }
@@ -469,9 +493,9 @@ public partial class MainWindow : Window
         await Guard(async () =>
         {
             if (!EnsureConnected()) return;
-            if (sender is Button { Tag: HomeResultCard card } && card.Result.BestMatch is not null)
+            if (sender is Button { Tag: HomeResultCard card } && card.PrimaryVersion is not null)
             {
-                await PreviewDiscoveryAsync(card.Result.BestMatch);
+                await PreviewDiscoveryAsync(card.PrimaryVersion);
             }
         }, "preview track");
     }
@@ -482,11 +506,34 @@ public partial class MainWindow : Window
         {
             if (!EnsureConnected()) return;
             if (sender is not Button { Tag: HomeResultCard card }) return;
+            if (card.IsVersionGroup)
+            {
+                var chosenVersion = ChooseVersion(card);
+                if (chosenVersion is null)
+                {
+                    return;
+                }
+                await _api.ImportDiscoveryAsync(new DiscoveryImportRequestDto
+                {
+                    Source = chosenVersion.Source,
+                    CanonicalSourceUrl = chosenVersion.CanonicalSourceUrl,
+                    Title = chosenVersion.Title,
+                    Artist = chosenVersion.Artist,
+                    Album = chosenVersion.Album,
+                    DurationSeconds = chosenVersion.DurationSeconds,
+                    ArtworkUrl = chosenVersion.ArtworkUrl,
+                    ProviderId = chosenVersion.ProviderId,
+                    AudioBitrateKbps = 192,
+                    EnrichMetadata = true,
+                });
+                await RefreshJobsAsync();
+                return;
+            }
             if (card.IsAlbum)
             {
                 var result = await _api.ImportCatalogAlbumAsync(new CatalogAlbumImportRequestDto
                 {
-                    ReleaseId = card.Result.CatalogId,
+                    ReleaseId = card.Result!.CatalogId,
                     Title = card.Result.Title,
                     Artist = card.Result.Artist,
                     ArtworkUrl = card.Result.ArtworkUrl,
@@ -499,7 +546,7 @@ public partial class MainWindow : Window
             {
                 await _api.ImportCatalogTrackAsync(new CatalogTrackImportRequestDto
                 {
-                    Title = card.Result.Title,
+                    Title = card.Result!.Title,
                     Artist = card.Result.Artist,
                     Album = card.Result.Album,
                     ArtworkUrl = card.Result.ArtworkUrl,
