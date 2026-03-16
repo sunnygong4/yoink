@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Projects - Sunny Gong</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <audio id="click-sound" src="audio/click1.mp3" preload="auto"></audio>
+
+  <header class="navbar static-header">
+    <a href="index.html" class="nav-logo">
+      <img src="images/headerTrans.png" alt="Logo" class="logo" />
+    </a>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="gallery.html">Gallery</a>
+      <a href="projects.html" class="active">Projects</a>
+      <a href="contact.html">Contact</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <main class="projects-page" style="padding-top: 6rem;">
+    <h2 style="text-align: center; color: var(--color-primary);">Projects</h2>
+    
+    <div class="project-grid" style="
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      padding: 2rem;
+    ">
+      <div class="project-card" style="background: var(--color-bg-3); padding: 1.5rem; border-radius: 8px;">
+        <h3 style="color: var(--color-primary);">Project One</h3>
+        <p>A simple HTML & CSS portfolio site.</p>
+      </div>
+      
+      <div class="project-card" style="background: var(--color-bg-3); padding: 1.5rem; border-radius: 8px;">
+        <h3 style="color: var(--color-primary);">Project Two</h3>
+        <p>A JavaScript app that demonstrates DOM manipulation.</p>
+      </div>
+
+      <div class="project-card" style="background: var(--color-bg-3); padding: 1.5rem; border-radius: 8px;">
+        <h3 style="color: var(--color-primary);">Project Three</h3>
+        <p>A photo-capture easter egg using camera access and animation.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Sunny Gong. All rights reserved.</p>
+  </footer>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const clickSound = document.getElementById("click-sound");
+      const navLinks = document.querySelectorAll("header.navbar nav a");
+
+      navLinks.forEach(link => {
+        const href = link.getAttribute("href");
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          clickSound.currentTime = 0;
+          clickSound.play().then(() => {
+            setTimeout(() => {
+              window.location.href = href;
+            }, 300);
+          }).catch(() => {
+            window.location.href = href;
+          });
+        });
+      });
+    });
+  </script>
+</body>
+</html>

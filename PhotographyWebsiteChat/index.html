@@ -1,0 +1,84 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sunny Gong Portfolio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <audio id="click-sound" src="audio/click1.mp3" preload="auto"></audio>
+  <audio id="click-sound-2" src="audio/click2.mp3" preload="auto"></audio>
+  <audio id="polaroid-sound" src="audio/polaroid.mp3" preload="auto"></audio>
+
+  <header class="navbar">
+    <a href="index.html" class="nav-logo">
+      <img src="images/headerTrans.png" alt="Logo" class="logo" />
+    </a>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="gallery.html">Gallery</a>
+      <a href="projects.html">Projects</a>
+      <a href="contact.html">Contact</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div id="floating-polaroid"></div>
+    <img src="images/logo.png" alt="My Logo" class="logo" />
+    <div class="hero-text">
+      <h1 class="typewriter-text">
+        <span class="typed-text"></span><span class="cursor">|</span>
+      </h1>
+      <div class="hero-links">
+        <a href="projects.html">Computer Engineer</a>
+        <a href="gallery.html">Photographer</a>
+        <a href="https://www.instagram.com/yourprofile" target="_blank">Dreamer</a>
+      </div>      
+    </div>    
+  </div>
+
+  <section id="about">
+    <h2>About Me</h2>
+    <p>I’m passionate about building clean, creative web experiences. I love combining aesthetics with functionality.</p>
+  </section>
+
+  <section id="sample-gallery">
+    <h2>Gallery Preview</h2>
+    <div class="gallery-preview">
+      <img src="images/gallery1.jpg" alt="Gallery Preview 1" />
+      <img src="images/gallery2.jpg" alt="Gallery Preview 2" />
+      <img src="images/gallery3.jpg" alt="Gallery Preview 3" />
+    </div>
+    <div class="gallery-button">
+      <a href="gallery.html">View Full Gallery</a>
+    </div>
+  </section>
+  
+
+  <section id="projects">
+    <h2>Projects</h2>
+    <div class="project">
+      <h3>Project One</h3>
+      <p>A simple website I built to explore HTML and CSS.</p>
+    </div>
+    <div class="project">
+      <h3>Project Two</h3>
+      <p>An interactive JavaScript app to practice DOM manipulation.</p>
+    </div>
+  </section>
+
+  <section id="contact">
+    <h2>Contact</h2>
+    <p>Email me at <a href="mailto:s43gong@uwaterloo.ca">s43gong@uwaterloo.ca</a></p>
+  </section>
+
+  <footer>
+    <p>&copy; 2025 Sunny Gong. All rights reserved.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

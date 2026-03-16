@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gallery - Sunny Gong</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="gallery.css" />
+</head>
+<body>
+  <audio id="click-sound" src="audio/click1.mp3" preload="auto"></audio>
+
+  <header class="navbar static-header">
+    <a href="index.html" class="nav-logo">
+      <img src="images/headerTrans.png" alt="Logo" class="logo" />
+    </a>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="gallery.html" class="active">Gallery</a>
+      <a href="projects.html">Projects</a>
+      <a href="contact.html">Contact</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <main class="gallery-page">
+    <h2 class="gallery-title">Sunny’s Photo Gallery</h2>
+
+    <!-- Grouping Buttons -->
+    <section class="grouping-header">
+      <div class="group-row">
+        <span class="group-label">Group photos by:</span>
+        <div class="group-buttons">
+          <button class="group-btn active" data-group="collections">📸 Collections</button>
+          <button class="group-btn" data-group="events">🎉 Events</button>
+          <button class="group-btn" data-group="gear">📷 Gear</button>
+          <button class="group-btn" data-group="time">📅 Time</button>
+        </div>
+      </div>
+    </section>
+    
+    
+
+    <!-- Filter Panel -->
+    <section class="filter-panel">
+      <label>Camera:
+        <select name="camera">
+          <option value="">Any</option>
+          <option value="Canon">Canon</option>
+          <option value="Nikon">Nikon</option>
+          <option value="Sony">Sony</option>
+        </select>
+      </label>
+      <label>Lens:
+        <input type="text" name="lens" placeholder="e.g., 35mm f/1.4" />
+      </label>
+      <label>ISO:
+        <input type="number" name="iso" placeholder="e.g., 100" />
+      </label>
+      <label>Format:
+        <select name="format">
+          <option value="">Any</option>
+          <option value="film">Film</option>
+          <option value="digital">Digital</option>
+        </select>
+      </label>
+      <button id="apply-filters">Apply Filters</button>
+    </section>
+
+      <!-- Dynamic Gallery Section -->
+    <div id="gallery-category-container" class="gallery-category-container">
+      <!-- Content will be replaced dynamically -->
+    </div>
+
+    <!-- Category Cards -->
+    <div class="gallery-category-container">
+      <a href="gallery-landscape.html" class="gallery-box">
+        <img src="images/LandscapeThumbnail.jpg" alt="Landscape">
+        <div class="caption">
+          <h3>Landscape</h3>
+          <p>Vast scenes from nature and scenery</p>
+        </div>
+      </a>
+      <a href="gallery-cityview.html" class="gallery-box">
+        <img src="images/CityviewThumbnail.jpg" alt="City View">
+        <div class="caption">
+          <h3>City View</h3>
+          <p>Urban geometry and metropolitan vibes</p>
+        </div>
+      </a>
+      <a href="gallery-portrait.html" class="gallery-box">
+        <img src="images/PortraitThumbnail.jpg" alt="Portrait">
+        <div class="caption">
+          <h3>Portrait</h3>
+          <p>Faces and emotions in still form</p>
+        </div>
+      </a>
+      <a href="gallery-animals.html" class="gallery-box">
+        <img src="images/AnimalsThumbnail.jpg" alt="Animals">
+        <div class="caption">
+          <h3>Animals</h3>
+          <p>Wildlife, pets, and nature’s creatures</p>
+        </div>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Sunny Gong. All rights reserved.</p>
+  </footer>
+
+  <script src="gallery.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{$YOINKER_DOMAIN} {
+    encode gzip zstd
+
+    @api path /api/* /docs* /openapi.json /redoc* /radio/*
+    reverse_proxy @api api:8000
+
+    reverse_proxy web:80
+}

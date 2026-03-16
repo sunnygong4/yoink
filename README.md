@@ -1,28 +1,107 @@
-Yoinker - A tool for downloading music and videos from various sources.
+Yoinker is now a website-first personal media platform.
 
-## About
+- `backend/` hosts the authenticated FastAPI API, stream endpoints, playlist sharing, radio playlist feeds, and the background download worker.
+- `client-web/` is the main browser experience for phones and laptops: queue jobs, stream your library, manage playlists, and open shared playlist pages.
+- `yoinker.py` remains the desktop companion for remote job submission and auto-pulling files to a local folder.
+- `yoinker_core/` contains the shared yt-dlp and ffmpeg download pipeline used by both the worker and the desktop app.
 
-Yoinker is a Python application that allows you to download music and videos from various sources, including YouTube and Bilibili. It also includes a song downloader that uses the MusicBrainz database to find and download songs.
+## What It Does
 
-## Files
+1. A user signs into the web app or desktop app.
+2. They submit a YouTube or Bilibili URL to the API.
+3. The worker downloads and finalizes media on the server.
+4. Finished audio and video land in the user's private library.
+5. The browser can stream files directly from the server.
+6. Users can build playlists, share playlist pages, and expose a simple HLS radio feed from a playlist.
 
-- `yoinker.py` The main application file.
-- `setup.py`: A Python script that installs Python, all required libraries, and ffmpeg.
-- `yoinker.bat`: A batch script that runs the `setup.py` script and the `yoinker.py` script in order.
-- `README.md`: This file.
+## Local Development
 
-## Installation
- 
-To install and run Yoinker, simply run the `yoinker.bat` script. This will automatically run the setup script and then start the application.
+### Backend API
 
-Alternatively, you can run the scripts manually:
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
 
-1.  Run `python setup.py` to install all dependencies.
-2.  Run `python yoinker.py` to start the application.
+### Backend Worker
 
-## Usage
+Run this in a second terminal:
 
-Once the application is running, you can use the following features:
+```bash
+cd backend
+source .venv/bin/activate
+python run_worker.py
+```
 
-- **Song Downloader**: Search for and download songs from the MusicBrainz database.
-- **Download from Youtube/Bilibili**: Download videos and audio from YouTube and Bilibili.
+### Web Client
+
+```bash
+cd client-web
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Set `VITE_API_BASE_URL` if your API is not `http://localhost:8000`.
+
+### FFmpeg
+
+- Production audio jobs should have FFmpeg installed so the server can produce MP3 output.
+- Local development can still fall back to source audio containers such as `.m4a` if FFmpeg is missing.
+- On Ubuntu: `sudo apt update && sudo apt install -y ffmpeg`
+
+## Core HTTP Surface
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/token`
+- `GET /api/v1/auth/me`
+- `POST /api/v1/jobs`
+- `GET /api/v1/jobs`
+- `GET /api/v1/library`
+- `GET /api/v1/library/{media_id}/stream`
+- `GET /api/v1/library/{media_id}/download`
+- `POST /api/v1/playlists`
+- `GET /api/v1/playlists`
+- `POST /api/v1/playlists/{id}/share`
+- `GET /api/v1/shared/playlists/{share_token}`
+- `POST /api/v1/radio`
+- `GET /radio/{slug}/index.m3u8`
+
+## Production on Ubuntu
+
+The repo now includes:
+
+- `docker-compose.yml`
+- `backend/Dockerfile`
+- `client-web/Dockerfile`
+- `deploy/Caddyfile`
+- `.env.production.example`
+
+Typical production flow:
+
+```bash
+cp .env.production.example .env
+docker compose build
+docker compose up -d
+```
+
+The compose stack runs `postgres`, `api`, `worker`, `web`, and `caddy`. Caddy terminates HTTPS and routes `/api/*` and `/radio/*` to the API while serving the browser app for everything else.
+
+## Tests
+
+Backend:
+
+```bash
+python -m unittest discover -s backend/tests
+```
+
+Web build:
+
+```bash
+cd client-web
+npm run build
+```
