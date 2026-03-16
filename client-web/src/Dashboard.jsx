@@ -37,6 +37,7 @@ import {
   importDiscoveryResult,
   searchDiscoveryCatalog,
   searchMusicCatalog,
+  searchVersionGroups,
   sharePlaylist,
   shareRadioChannel,
   updateAlbumMetadata,
@@ -180,6 +181,49 @@ function CatalogTrackCard({ item, token, busy, onPlay, onAdd }) {
   );
 }
 
+function VersionGroupCard({ group, token, busy, onPlay, onChoose }) {
+  const alternateCount = group.alternate_versions?.length || 0;
+  const totalVersions = 1 + alternateCount;
+  return (
+    <article className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-4">
+      <Artwork
+        src={getDiscoveryArtworkUrl(group.artwork_url || group.selected_version?.artwork_url, token)}
+        title={group.display_title}
+        className="h-52 w-full"
+      />
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.24em] text-stone-400">Song match</p>
+        <p className="rounded-full bg-emerald-300/15 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-emerald-100">
+          Preselected: {group.selected_version?.source_label || group.selected_version?.source || 'Source'}
+        </p>
+      </div>
+      <h3 className="mt-2 line-clamp-2 text-lg font-medium text-white">{group.display_title}</h3>
+      <p className="mt-1 truncate text-sm text-stone-300">{group.display_artist || group.selected_version?.artist || 'Unknown artist'}</p>
+      <p className="mt-1 truncate text-xs uppercase tracking-[0.22em] text-stone-500">
+        {totalVersions} version{totalVersions === 1 ? '' : 's'} available
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onPlay}
+          disabled={busy || !group.selected_version}
+          className="rounded-full bg-emerald-300 px-4 py-2 text-sm font-semibold text-stone-950 disabled:opacity-50"
+        >
+          Preview
+        </button>
+        <button
+          type="button"
+          onClick={onChoose}
+          disabled={busy || !group.selected_version}
+          className="rounded-full border border-white/15 px-4 py-2 text-sm text-stone-100 disabled:opacity-50"
+        >
+          Choose version
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function CatalogAlbumCard({ item, token, busy, onAdd }) {
   return (
     <article className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-4">
@@ -238,6 +282,72 @@ function MetadataModal({ title, subtitle, fields, values, onChange, onCancel, on
   );
 }
 
+function VersionPickerModal({
+  group,
+  token,
+  selectedVersionId,
+  onSelect,
+  onCancel,
+  onConfirm,
+  saving,
+}) {
+  if (!group) return null;
+  const versions = [group.selected_version, ...(group.alternate_versions || [])];
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
+      <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-[#101314] p-6 shadow-2xl">
+        <p className="text-[11px] uppercase tracking-[0.28em] text-emerald-200/65">Choose version</p>
+        <h3 className="mt-3 text-2xl font-semibold text-white">{group.display_title}</h3>
+        <p className="mt-2 text-sm text-stone-400">
+          {group.display_artist || 'Unknown artist'} - pick the exact version before adding it to your library.
+        </p>
+        <div className="mt-6 grid gap-3">
+          {versions.map((version, index) => {
+            const versionKey = version.canonical_source_url;
+            const selected = selectedVersionId === versionKey;
+            return (
+              <button
+                key={versionKey}
+                type="button"
+                onClick={() => onSelect(versionKey)}
+                className={`grid gap-3 rounded-[1.4rem] border p-4 text-left ${
+                  selected ? 'border-emerald-300/60 bg-emerald-300/10' : 'border-white/10 bg-black/20'
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  <Artwork
+                    src={getDiscoveryArtworkUrl(version.artwork_url || group.artwork_url, token)}
+                    title={version.title}
+                    className="h-16 w-16 flex-none rounded-[1rem]"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-base font-medium text-white">{version.title}</p>
+                      {index === 0 ? <span className="rounded-full bg-emerald-300/15 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-emerald-100">Recommended</span> : null}
+                    </div>
+                    <p className="mt-1 truncate text-sm text-stone-300">{version.artist || 'Unknown artist'}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.22em] text-stone-500">
+                      {[version.album, version.source_label || version.source, formatDuration(version.duration_seconds)].filter(Boolean).join(' | ')}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-6 flex gap-3">
+          <button type="button" onClick={onCancel} className="flex-1 rounded-full border border-white/15 px-4 py-3 text-sm text-stone-200">
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} disabled={saving || !selectedVersionId} className="flex-1 rounded-full bg-white px-4 py-3 text-sm font-semibold text-stone-950 disabled:bg-stone-700 disabled:text-stone-300">
+            {saving ? 'Adding...' : 'Add selected version'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { logout, token, user } = useAuth();
   const audioRef = useRef(null);
@@ -245,6 +355,7 @@ export default function Dashboard() {
 
   const [view, setView] = useState('home');
   const [homeSearchMode, setHomeSearchMode] = useState('song');
+  const [homeSource, setHomeSource] = useState('youtube');
   const [manualMode, setManualMode] = useState('provider');
   const [selectedSource, setSelectedSource] = useState('youtube');
   const [homeCommand, setHomeCommand] = useState('');
@@ -270,6 +381,8 @@ export default function Dashboard() {
   const [radioChannels, setRadioChannels] = useState([]);
   const [catalogPage, setCatalogPage] = useState({ items: [], total: 0, page: 1, page_size: 8 });
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [versionPage, setVersionPage] = useState({ items: [], total: 0, page: 1, page_size: 8, status: 'ok' });
+  const [versionLoading, setVersionLoading] = useState(false);
   const [discoveryPage, setDiscoveryPage] = useState({ items: [], total: 0, page: 1, page_size: 12 });
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
 
@@ -290,6 +403,8 @@ export default function Dashboard() {
   const [positionSeconds, setPositionSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [volume, setVolume] = useState(0.9);
+  const [versionPickerGroup, setVersionPickerGroup] = useState(null);
+  const [selectedVersionId, setSelectedVersionId] = useState('');
 
   const deferredHomeCommand = useDeferredValue(homeCommand);
   const deferredHomeSecondaryCommand = useDeferredValue(homeSecondaryCommand);
@@ -342,7 +457,35 @@ export default function Dashboard() {
     if (!catalogQuery) {
       setCatalogPage({ items: [], total: 0, page: 1, page_size: 8 });
       setCatalogLoading(false);
+      setVersionPage({ items: [], total: 0, page: 1, page_size: 8, status: 'ok' });
+      setVersionLoading(false);
       return undefined;
+    }
+    if (homeSearchMode === 'song') {
+      setVersionLoading(true);
+      searchVersionGroups({
+        q: catalogQuery,
+        artist_hint: trimmedHomeSecondaryCommand || undefined,
+        source: homeSource,
+        page: 1,
+        page_size: 8,
+      }).then((response) => {
+        if (!cancelled) {
+          setVersionPage(response);
+        }
+      }).catch((error) => {
+        console.error(error);
+        if (!cancelled) {
+          setMessage(error?.response?.data?.detail || 'Version search failed.');
+        }
+      }).finally(() => {
+        if (!cancelled) {
+          setVersionLoading(false);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
     }
     setCatalogLoading(true);
     searchMusicCatalog({
@@ -368,7 +511,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [catalogQuery, trimmedHomeSecondaryCommand, homeSearchMode]);
+  }, [catalogQuery, trimmedHomeSecondaryCommand, homeSearchMode, homeSource]);
 
   useEffect(() => {
     let cancelled = false;

@@ -70,6 +70,11 @@ export const searchMusicCatalog = async (params = {}) => {
   return response.data;
 };
 
+export const searchVersionGroups = async (params = {}) => {
+  const response = await api.get('/search/versions', { params });
+  return response.data;
+};
+
 export const importCatalogTrack = async (payload) => {
   const response = await api.post('/catalog/import-track', payload);
   return response.data;
