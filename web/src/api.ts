@@ -4,6 +4,7 @@ export type Song = {
   id: string
   title: string
   artist: string
+  album: string | null
   duration: number | null
   thumbnail: string | null
   url: string | null
@@ -15,17 +16,33 @@ export type Song = {
   lyrics: boolean
 }
 
-export type SearchResult = {
+// a real song from the catalog (iTunes): one per song per artist
+export type CatalogSong = {
+  key: string
+  title: string
+  artist: string
+  album: string
+  duration: number | null
+  artwork: string
+  year: string
+  versions: number
+  song_id: string | null   // already in the library
+  instant: boolean         // the karaoke site already has it: adding takes a second
+}
+
+// an upload of a song on YouTube / Bilibili
+export type Source = {
   source: 'youtube' | 'bilibili'
   id: string
   url: string
   title: string
   channel: string
+  album?: string | null
   duration: number
   views: number | null
   thumbnail: string
   tags: string[]
-  song_id: string | null   // already in the library (this upload, or another one of the same song)
+  fit: number
 }
 
 export type Lyrics = { lines: { t: number; text: string; tr?: string }[]; offset: number }
@@ -60,8 +77,10 @@ export const api = {
   logout: () => call('/api/logout', {}),
   invite: () => call<{ code: string }>('/api/invites', {}),
   songs: () => call<Song[]>('/api/songs'),
-  search: (q: string, where: string) => call<SearchResult[]>(`/api/search?${new URLSearchParams({ q, where })}`),
-  add: (r: SearchResult) => call<Song>('/api/songs', r),
+  catalog: (q: string) => call<CatalogSong[]>(`/api/catalog?${new URLSearchParams({ q })}`),
+  quick: (song: CatalogSong) => call<Song>('/api/songs/quick', song),
+  sources: (song: CatalogSong, where: string) => call<Source[]>(`/api/sources?where=${where}`, song),
+  add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,

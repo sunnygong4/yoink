@@ -1,8 +1,9 @@
-"""The music side of the shared song store: download audio, and adopt songs the karaoke site already has.
+"""The music side of the shared song store: the library is the songs people added; this downloads their audio.
 
 Yoinker's fields on a song document are prefixed music_ (the karaoke site owns status/stage/progress):
     music_status   queued | working | ready | error
     music_progress 0-100, music_error, added_by (name), added_at
+Songs added from the catalog also get display_title / display_artist / album / artwork (the real song's name and cover).
 """
 import json
 import os
@@ -15,16 +16,18 @@ import traceback
 from pathlib import Path
 
 from songstore import AUDIO, artist_title, open_store
-from songstore.keys import mentioned
 from songstore.identify import identify
+from songstore.keys import same_length
 
+import catalog
+import search as se
 from db import DATA
 
 store = open_store(os.environ.get("SONGSTORE_ROOT") or DATA / "songstore")
 APP = "music"
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "ffprobe"
-SYNC_EVERY = 5 * 60
+IN_LIBRARY = ("queued", "working", "ready", "error")
 
 
 def song_id(source: str, vid: str) -> str:
@@ -37,9 +40,11 @@ def view(doc: dict) -> dict:
         "id": doc["id"],
         "title": title or doc.get("title") or doc["id"],
         "artist": artist or doc.get("channel") or "",
+        "album": doc.get("album"),
         "duration": doc.get("duration"),
-        "thumbnail": doc.get("thumbnail"),
+        "thumbnail": doc.get("artwork") or doc.get("thumbnail"),
         "url": doc.get("url"),
+        "source_title": doc.get("title"),
         "status": doc.get("music_status"),
         "progress": doc.get("music_progress"),
         "error": doc.get("music_error"),
@@ -50,7 +55,8 @@ def view(doc: dict) -> dict:
 
 
 def library() -> list[dict]:
-    out = [view(d) for d in store.all() if d.get("music_status")]
+    """Only songs someone added here; what else the karaoke site has stays out of sight until someone asks for it."""
+    out = [view(d) for d in store.all() if d.get("music_status") in IN_LIBRARY]
     out.sort(key=lambda s: s["added_at"] or 0, reverse=True)
     return out
 
@@ -63,31 +69,66 @@ def source_file(doc: dict) -> Path | None:
     return None
 
 
-def candidates() -> list[dict]:
-    """Songs a search result could turn out to be: the library, plus what the karaoke site has downloaded."""
-    return [d for d in store.all() if d.get("music_status") in ("queued", "working", "ready") or source_file(d)]
+# ---------- catalog songs <-> the store ----------
+
+def known() -> list[dict]:
+    """Songs that can be listened to without downloading: the library, plus what the karaoke site has."""
+    return [d for d in store.all() if d.get("music_status") in IN_LIBRARY or store.file(d["id"], AUDIO) or source_file(d)]
 
 
-def existing(r: dict, pool: list[dict] | None = None) -> dict | None:
-    """The store's song for a search result: the same upload, or failing that the same song in the library."""
-    if doc := store.get(song_id(r["source"], r["id"])):
-        return doc
-    if {"cover", "live", "karaoke"} & set(r.get("tags") or []):   # a different recording of the song
-        return None
-    text = f"{r.get('title') or ''} {r.get('channel') or ''}"
-    return next((d for d in (candidates() if pool is None else pool) if mentioned(d, text, r.get("duration"))), None)
+def find(song: dict, pool: list[dict] | None = None) -> dict | None:
+    """The store's copy of a catalog song (same artist + title, about the same length, not a cover/live take)."""
+    best = None
+    want_live = bool(re.search(r"\blive\b|現場|现场|演唱會|演唱会", f"{song['title']} {song.get('album') or ''}", re.I))
+    for d in known() if pool is None else pool:
+        text = " ".join(str(d.get(k) or "") for k in ("display_title", "display_artist", "track", "artist", "title"))
+        if not catalog.matches({"title": text, "channel": d.get("channel") or ""}, song["artist"], song["title"]):
+            continue
+        tags = set(se.tag({"title": d.get("title") or "", "channel": d.get("channel") or ""}))
+        # a cover is never the song; a live take is only the song when a live take was asked for (and vice versa)
+        if not same_length(d.get("duration"), song.get("duration")) or {"cover", "karaoke"} & tags \
+                or ("live" in tags) != want_live:
+            continue
+        if d.get("music_status") in IN_LIBRARY:
+            return d
+        best = best or d
+    return best
 
 
-def add(r: dict, user: dict) -> dict:
-    """Add a search result to the library. Reuses the song if the store already has it (or the same work)."""
+def canonical(song: dict | None) -> dict:
+    """The catalog's name and cover for a song document (display_* are what both apps show)."""
+    if not song:
+        return {}
+    return {"display_title": song["title"], "display_artist": song["artist"], "album": song.get("album"),
+            "artwork": song.get("artwork")}
+
+
+def add(r: dict, user: dict, song: dict | None = None) -> dict:
+    """Add an upload (a search result) to the library, named after the catalog song it is, if given."""
     sid = song_id(r["source"], r["id"])
-    fields = {k: r.get(k) for k in ("source", "url", "title", "channel", "duration", "thumbnail")}
-    doc = existing(r)
+    doc = store.get(sid)
     if doc and doc.get("music_status") in ("queued", "working", "ready"):
         return view(doc)
-    sid = doc["id"] if doc else sid
+    fields = {k: r.get(k) for k in ("source", "url", "title", "channel", "duration", "thumbnail")}
+    fields.update(canonical(song))
     keep = {k: v for k, v in fields.items() if v and not (doc or {}).get(k)}   # never overwrite karaoke's metadata
-    doc = store.update(sid, **keep, music_status="queued", music_progress=0, music_error=None,
+    return _queue(sid, keep, user)
+
+
+def quick(song: dict, user: dict) -> dict:
+    """快速下载: reuse the store's copy of the song if there is one, else download the best upload of it."""
+    if doc := find(song):
+        if doc.get("music_status") in ("queued", "working", "ready"):
+            return view(doc)
+        return _queue(doc["id"], {k: v for k, v in canonical(song).items() if v and not doc.get(k)}, user)
+    r = catalog.pick_source(song)
+    if not r:
+        raise LookupError("没找到靠谱的来源，试试「单独选取」")
+    return add(r, user, song)
+
+
+def _queue(sid: str, fields: dict, user: dict) -> dict:
+    doc = store.update(sid, **fields, music_status="queued", music_progress=0, music_error=None,
                        added_by=user["name"], added_at=time.time())
     enqueue(sid)
     return view(doc)
@@ -128,15 +169,19 @@ def _worker():
 
 
 def name_and_lyrics(sid: str):
-    """Give an upload its real artist/title (and lyrics, when their timing fits) unless the karaoke site already did."""
+    """Real artist/title (if the catalog didn't give one) and lyrics (when their timing fits), unless already there.
+    Songs from the catalog are looked up by their real name, which finds the lyrics far more reliably."""
     doc = store.get(sid)
-    if doc.get("display_title") or doc.get("identified"):
+    if doc.get("identified") or (doc.get("display_title") and store.file(sid, "lyrics.json")):
         return
-    found = identify(doc)
+    query = {**doc, "track": doc.get("display_title") or doc.get("track"),
+             "artist": doc.get("display_artist") or doc.get("artist")}
+    found = identify(query)
     store.update(sid, identified=True)   # one try per song; the karaoke site's lyric matching can still fill it in later
     if not found:
         return
-    store.update(sid, display_title=found["title"], display_artist=found["artist"])
+    if not doc.get("display_title"):
+        store.update(sid, display_title=found["title"], display_artist=found["artist"])
     if found["synced"] and not store.file(sid, "lyrics.json"):
         keep = {k: found[k] for k in ("source", "id", "title", "artist", "duration", "lines")}
         (store.song_dir(sid) / "lyrics.json").write_text(json.dumps(keep, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -212,28 +257,14 @@ def friendly_error(raw: str) -> str:
     return re.sub(r"\s+", " ", raw.replace("ERROR:", "")).strip()[:140]
 
 
-def sync():
-    """Adopt songs the karaoke site downloaded (extracting their audio) and resume interrupted work."""
+def resume():
+    """Pick up downloads a restart interrupted."""
     for doc in store.all():
-        status = doc.get("music_status")
-        if status in ("queued", "working"):
+        if doc.get("music_status") in ("queued", "working"):
             enqueue(doc["id"])
-        elif status is None and source_file(doc):
-            store.update(doc["id"], music_status="queued", music_progress=0,
-                         added_by=doc.get("added_by") or "卡拉OK", added_at=doc.get("created") or time.time())
-            enqueue(doc["id"])
-
-
-def _syncer():
-    while True:
-        try:
-            sync()
-        except Exception:
-            traceback.print_exc()
-        time.sleep(SYNC_EVERY)
 
 
 def start():
     for _ in range(2):
         threading.Thread(target=_worker, daemon=True).start()
-    threading.Thread(target=_syncer, daemon=True).start()
+    resume()

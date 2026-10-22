@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from songstore import AUDIO
 
 import auth
+import catalog as cat
 import library as lib
 import search as se
 
@@ -74,19 +75,48 @@ def invite(user=Depends(auth.current_user)):
 
 # ---------- search + library ----------
 
-@app.get("/api/search")
-def search(q: str, where: str = "youtube", _=Depends(auth.current_user)):
+class CatalogSong(BaseModel):
+    title: str
+    artist: str
+    album: str | None = None
+    duration: float | None = None
+    artwork: str | None = None
+
+
+@app.get("/api/catalog")
+def catalog_search(q: str, _=Depends(auth.current_user)):
+    """Songs by name (one per song per artist), each marked if it's in the library or can be added instantly."""
     if not q.strip():
         return []
     try:
-        results = se.search(q, where)
+        results = cat.search(q)
     except Exception as e:
         raise HTTPException(502, f"搜索失败：{e}")
-    pool = lib.candidates()
+    pool = lib.known()
     for r in results:
-        doc = lib.existing(r, pool)
-        r["song_id"] = doc["id"] if doc and doc.get("music_status") else None   # already in the library
+        doc = lib.find(r, pool)
+        in_lib = doc and doc.get("music_status") in lib.IN_LIBRARY
+        r["song_id"] = doc["id"] if in_lib else None
+        r["instant"] = bool(doc) and not in_lib   # the karaoke site already has it: adding takes a second
     return results
+
+
+@app.post("/api/songs/quick")
+def quick_add(song: CatalogSong, user=Depends(auth.current_user)):
+    """快速下载: the store's copy if there is one, else the best upload (YouTube Music's official track first)."""
+    try:
+        return lib.quick(song.model_dump(), user)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/sources")
+def sources(song: CatalogSong, where: str = "youtube", _=Depends(auth.current_user)):
+    """单独选取: uploads of a song to choose from, best first."""
+    try:
+        return cat.candidates(song.model_dump(), where)
+    except Exception as e:
+        raise HTTPException(502, f"搜索失败：{e}")
 
 
 class AddSong(BaseModel):
@@ -97,6 +127,7 @@ class AddSong(BaseModel):
     channel: str = ""
     duration: float | None = None
     thumbnail: str | None = None
+    song: CatalogSong | None = None   # the catalog song this upload was picked for (gives it its real name + cover)
 
 
 @app.post("/api/songs")
@@ -105,7 +136,8 @@ def add_song(body: AddSong, user=Depends(auth.current_user)):
         raise HTTPException(400, "bad source")
     if body.duration and body.duration > se.MAX_DURATION:
         raise HTTPException(400, "太长了，不像是一首歌")
-    return lib.add(body.model_dump(), user)
+    r = body.model_dump(exclude={"song"})
+    return lib.add(r, user, body.song.model_dump() if body.song else None)
 
 
 @app.get("/api/songs")

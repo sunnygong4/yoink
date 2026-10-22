@@ -9,14 +9,16 @@
 ```
 songstore/   共享歌库（Python 包，K 歌站也装它）：songs.db 目录 + library/<歌曲id>/ 文件夹
              keys.py（同一首歌的识别）、identify.py（从网易云 / LRCLIB 找真名和歌词）
-server/      FastAPI：app.py（接口）、library.py（下载 / 收编 K 歌站的歌）、auth.py（邀请制账号）、search.py
+server/      FastAPI：app.py（接口）、catalog.py（按歌名找歌：iTunes 曲库 + 给歌挑来源，YouTube Music 官方音源优先）、
+             library.py（歌库 / 下载）、search.py（YouTube / B站视频搜索）、auth.py（邀请制账号）
 web/         React + Vite + TypeScript 网页
 ```
 
 ### 共享歌库怎么分工
 - 每首歌一条记录（JSON），字段两边都能读；Yoinker 自己的字段都带 `music_` 前缀，`status/stage/progress` 归 K 歌站。
 - 文件：Yoinker 用 `audio.m4a`（AAC，iPhone 也能放）；K 歌站用 `video.mp4`、伴奏、人声；`lyrics.json` 两边共用。
-- K 歌站下好的歌：Yoinker 每 5 分钟扫一次，用 ffmpeg 从视频里抽音频（直接拷贝音轨，一秒钟）。
+- 歌库只有大家加的歌。找歌是按"歌"找（歌名 + 歌手，同一歌手的各种版本合成一条），每条有「快速下载」（自动挑来源）和「单独选取」（自己挑 YouTube / B站 的哪个）。
+- K 歌站已经下过的歌：找歌时显示「秒加」，加的时候直接用 ffmpeg 从视频里拷出音轨，一秒钟。
 - Yoinker 有音频的歌被点唱：K 歌站直接拿音频去人声，不下载（没有 MV）。
 - 应用会 "hold" 自己要用的歌；K 歌站清理 30 天没人唱的歌时，Yoinker 在用的只删视频和伴奏。
 

@@ -6,3 +6,4 @@ httpx==0.28.1
 yt-dlp==2026.8.19
 yt-dlp-ejs==0.8.0
 deno==2.9.7
+ytmusicapi==1.12.3

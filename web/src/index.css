@@ -46,6 +46,11 @@ nav button { background: none; border: none; font-size: 18px; font-weight: 600; 
 .row b, .row .grow > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .grow > span { font-size: 13px; }
 .thumb { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; background: var(--panel); flex: none; }
+.thumb.square { width: 44px; height: 44px; }
+.tag.good { color: #6fd08c; border-color: #2f5a3b; }
+.toolbar button.active, .row button.active { border-color: var(--accent); color: var(--accent); }
+.sources { margin: 0 0 8px 52px; padding: 8px 10px; background: var(--panel); border-radius: 8px; }
+.sources .row:last-child { border-bottom: none; }
 .tag { font-size: 11px; margin-left: 6px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; }
 
 .player { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 12px;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, fmtTime, type SearchResult, type Song, type User } from './api'
+import { api, fmtTime, type CatalogSong, type Song, type Source, type User } from './api'
 import Login from './Login'
 import Player from './Player'
 
@@ -81,7 +81,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
       <header>
         <nav>
           <button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}>歌库</button>
-          <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>搜歌</button>
+          <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>找歌</button>
         </nav>
         <div className="me">
           <button className="link" onClick={invite}>邀请</button>
@@ -135,14 +135,14 @@ function Library({ songs, ready, currentId, play, playNext, enqueue }: Actions &
         <button onClick={() => play(shownReady)} disabled={!shownReady.length}>▶ 全部</button>
         <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}>🔀 随机</button>
       </div>
-      <p className="muted small">{ready.length} 首歌</p>
+      <p className="muted small">{songs.length ? `${ready.length} 首歌` : '歌库还是空的：去「找歌」加几首吧。'}</p>
       {shown.map(s => (
         <div key={s.id} className={'row' + (s.id === currentId ? ' now' : '')}>
           {s.thumbnail ? <img className="thumb" src={s.thumbnail} alt="" loading="lazy" /> : <div className="thumb" />}
           <button className="grow" disabled={s.status !== 'ready'}
             onClick={() => play(shownReady, Math.max(0, shownReady.indexOf(s.id)))}>
             <b>{s.title}</b>
-            <span className="muted">{s.artist} · {fmtTime(s.duration)}{s.added_by && ` · ${s.added_by} 加的`}</span>
+            <span className="muted">{s.artist}{s.album && ` · ${s.album}`} · {fmtTime(s.duration)}{s.added_by && ` · ${s.added_by} 加的`}</span>
             {s.status !== 'ready' && <SongStatus song={s} />}
           </button>
           {s.status === 'ready' && <>
@@ -164,58 +164,113 @@ function SongStatus({ song }: { song: Song }) {
 
 function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string, Song>; currentId?: string }) {
   const [q, setQ] = useState('')
-  const [where, setWhere] = useState('youtube')
-  const [results, setResults] = useState<SearchResult[]>([])
+  const [results, setResults] = useState<CatalogSong[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [added, setAdded] = useState<Record<string, string>>({})   // search result id -> library song id
+  const [added, setAdded] = useState<Record<string, string>>({})   // catalog key -> library song id
+  const [open, setOpen] = useState<string | null>(null)            // catalog key whose sources are shown
 
-  async function run(e?: React.FormEvent) {
-    e?.preventDefault()
+  async function run(e: React.FormEvent) {
+    e.preventDefault()
     if (!q.trim()) return
     setBusy(true)
     setError('')
-    try { setResults(await api.search(q, where)) } catch (err) { setError((err as Error).message) }
+    setOpen(null)
+    try { setResults(await api.catalog(q)) } catch (err) { setError((err as Error).message) }
     setBusy(false)
   }
 
-  useEffect(() => { if (q.trim()) run() }, [where])   // re-run when switching YouTube / B站
-
-  async function add(r: SearchResult) {
-    const s = await api.add(r)
-    setAdded(a => ({ ...a, [r.id]: s.id }))
-  }
+  const onAdded = (key: string, s: Song) => { setAdded(a => ({ ...a, [key]: s.id })); setOpen(null) }
 
   return (
     <>
       <form className="toolbar" onSubmit={run}>
         <input placeholder="歌名 / 歌手" value={q} onChange={e => setQ(e.target.value)} autoFocus />
-        <select value={where} onChange={e => setWhere(e.target.value)}>
-          <option value="youtube">YouTube</option>
-          <option value="bili">B站</option>
-        </select>
         <button type="submit" disabled={busy}>{busy ? '搜索中…' : '搜索'}</button>
       </form>
       {error && <p className="error">{error}</p>}
-      {results.map(r => {
-        const song = byId.get(added[r.id] || r.song_id || '')
-        return (
-          <div key={r.source + r.id} className={'row' + (song && song.id === currentId ? ' now' : '')}>
-            <img className="thumb" src={r.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
-            <div className="grow">
-              <b>{r.title}</b>
-              <span className="muted">{r.channel} · {fmtTime(r.duration)}
-                {r.tags.map(t => <span key={t} className="tag">{t}</span>)}</span>
-              {song && song.status !== 'ready' && <SongStatus song={song} />}
-            </div>
-            {!song && <button onClick={() => add(r)}>加入歌库</button>}
-            {song?.status === 'ready' && <>
-              <button className="icon" onClick={() => play([song.id])} title="播放">▶</button>
-              <button className="icon" onClick={() => enqueue(song.id)} title="加入队列">＋</button>
-            </>}
-          </div>
-        )
-      })}
+      {results.map(r => (
+        <CatalogRow key={r.key} song={r} lib={byId.get(added[r.key] || r.song_id || '')} currentId={currentId}
+          open={open === r.key} onToggle={() => setOpen(open === r.key ? null : r.key)}
+          onAdded={s => onAdded(r.key, s)} play={play} enqueue={enqueue} />
+      ))}
     </>
+  )
+}
+
+function CatalogRow({ song, lib, currentId, open, onToggle, onAdded, play, enqueue }: {
+  song: CatalogSong; lib?: Song; currentId?: string; open: boolean
+  onToggle: () => void; onAdded: (s: Song) => void
+} & Pick<Actions, 'play' | 'enqueue'>) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function quick() {
+    setBusy(true)
+    setError('')
+    try { onAdded(await api.quick(song)) } catch (err) { setError((err as Error).message) }
+    setBusy(false)
+  }
+
+  return (
+    <>
+      <div className={'row' + (lib && lib.id === currentId ? ' now' : '')}>
+        {song.artwork ? <img className="thumb square" src={song.artwork} alt="" loading="lazy" /> : <div className="thumb square" />}
+        <div className="grow">
+          <b>{song.title}</b>
+          <span className="muted">{song.artist} · {song.album}{song.year && ` · ${song.year}`} · {fmtTime(song.duration)}</span>
+          {lib && lib.status !== 'ready' && <SongStatus song={lib} />}
+          {error && <span className="error">{error}</span>}
+        </div>
+        {lib?.status === 'ready' ? <>
+          <button className="icon" onClick={() => play([lib.id])} title="播放">▶</button>
+          <button className="icon" onClick={() => enqueue(lib.id)} title="加入队列">＋</button>
+        </> : !lib && <>
+          <button onClick={quick} disabled={busy} title={song.instant ? '卡拉OK已经下过，马上就好' : '自动挑最合适的来源下载'}>
+            {busy ? '找来源…' : song.instant ? '秒加' : '快速下载'}
+          </button>
+          <button className={open ? 'active' : ''} onClick={onToggle}>单独选取</button>
+        </>}
+      </div>
+      {open && <SourcePicker song={song} onAdded={onAdded} />}
+    </>
+  )
+}
+
+function SourcePicker({ song, onAdded }: { song: CatalogSong; onAdded: (s: Song) => void }) {
+  const [where, setWhere] = useState('youtube')
+  const [list, setList] = useState<Source[] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setList(null)
+    setError('')
+    api.sources(song, where).then(setList).catch(e => setError((e as Error).message))
+  }, [song, where])
+
+  return (
+    <div className="sources">
+      <div className="toolbar">
+        <button className={where === 'youtube' ? 'active' : ''} onClick={() => setWhere('youtube')}>YouTube</button>
+        <button className={where === 'bili' ? 'active' : ''} onClick={() => setWhere('bili')}>B站</button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {!list && !error && <p className="muted small">找来源中…</p>}
+      {list?.map(r => (
+        <div key={r.source + r.id} className="row">
+          <img className="thumb" src={r.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
+          <div className="grow">
+            <b>{r.title}</b>
+            <span className="muted">{r.channel}{r.album && ` · ${r.album}`} · {fmtTime(r.duration)}
+              {r.tags.map(t => <span key={t} className={'tag' + (t === 'ytmusic' ? ' good' : '')}>
+                {t === 'ytmusic' ? '官方音源' : t}</span>)}
+              {Math.abs((r.duration || 0) - (song.duration || 0)) <= 2 && <span className="tag good">时长一致</span>}
+            </span>
+          </div>
+          <a href={r.url} target="_blank" rel="noreferrer" title="去原网站看看">↗</a>
+          <button onClick={() => api.add(r, song).then(onAdded).catch(e => setError((e as Error).message))}>用这个</button>
+        </div>
+      ))}
+    </div>
   )
 }
