@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, fmtTime, type Lyrics, type Song } from './api'
+import { t } from './i18n'
 
 type Props = {
   song: Song | null
@@ -65,7 +66,7 @@ export default function Player({ song, autoplay, hasPrev, hasNext, onPrev, onNex
     <>
       {panel === 'lyrics' && (
         <div className="panel lyrics">
-          {lines.length === 0 && <p className="muted">这首歌还没有歌词</p>}
+          {lines.length === 0 && <p className="muted">{t('noLyrics')}</p>}
           {lines.map((l, i) => (
             <p key={i} ref={i === current ? lineRef : undefined} className={i === current ? 'on' : ''}>
               {l.text}{l.tr && <span className="tr">{l.tr}</span>}
@@ -75,13 +76,13 @@ export default function Player({ song, autoplay, hasPrev, hasNext, onPrev, onNex
       )}
       {panel === 'queue' && (
         <div className="panel">
-          {queue.length === 0 && <p className="muted">队列是空的</p>}
+          {queue.length === 0 && <p className="muted">{t('emptyQueue')}</p>}
           {queue.map((s, i) => (
             <div key={i} className={'row' + (i === pos ? ' now' : '')}>
               <button className="grow" onClick={() => onJump(i)}>
                 <b>{s.title}</b> <span className="muted">{s.artist}</span>
               </button>
-              <button className="icon" onClick={() => onRemove(i)} title="移出队列">✕</button>
+              <button className="icon" onClick={() => onRemove(i)} title={t('removeFromQueue')}>✕</button>
             </div>
           ))}
         </div>
@@ -94,7 +95,7 @@ export default function Player({ song, autoplay, hasPrev, hasNext, onPrev, onNex
           onEnded={() => hasNext && onNext()} />
         {song?.thumbnail ? <img className="cover" src={song.thumbnail} alt="" /> : <div className="cover" />}
         <div className="info">
-          <div className="title">{song ? song.title : '还没有在播放'}</div>
+          <div className="title">{song ? song.title : t('notPlaying')}</div>
           <div className="muted">{song?.artist}</div>
           <input type="range" min={0} max={duration || 0} step={0.1} value={time} disabled={!song}
             onChange={e => { if (audio.current) audio.current.currentTime = Number(e.target.value) }} />
@@ -105,9 +106,9 @@ export default function Player({ song, autoplay, hasPrev, hasNext, onPrev, onNex
           <button className="icon big" onClick={toggle} disabled={!song}>{playing ? '⏸' : '▶'}</button>
           <button className="icon" onClick={onNext} disabled={!hasNext}>⏭</button>
           <button className={'icon' + (panel === 'lyrics' ? ' active' : '')}
-            onClick={() => setPanel(panel === 'lyrics' ? 'none' : 'lyrics')} title="歌词">词</button>
+            onClick={() => setPanel(panel === 'lyrics' ? 'none' : 'lyrics')} title={t('lyrics')}>{t('lyricsShort')}</button>
           <button className={'icon' + (panel === 'queue' ? ' active' : '')}
-            onClick={() => setPanel(panel === 'queue' ? 'none' : 'queue')} title="播放队列">☰</button>
+            onClick={() => setPanel(panel === 'queue' ? 'none' : 'queue')} title={t('queue')}>☰</button>
         </div>
       </footer>
     </>

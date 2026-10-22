@@ -4,7 +4,7 @@
   --line: #2c2c34;
   --text: #ececf1;
   --muted: #8b8b98;
-  --accent: #ff7a45;
+  --accent: #9db0ff;
   --error: #ff6b6b;
   color-scheme: dark;
   font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -17,7 +17,7 @@ button {
 }
 button:disabled { opacity: .45; cursor: default; }
 button.link, a { background: none; border: none; padding: 0 4px; color: var(--accent); cursor: pointer; }
-button.icon { background: none; border: none; padding: 6px 8px; font-size: 18px; }
+button.icon, a.icon { background: none; border: none; padding: 6px 8px; font-size: 18px; color: inherit; text-decoration: none; }
 button.icon.big { font-size: 26px; }
 button.icon.active, nav button.active { color: var(--accent); }
 input, select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }

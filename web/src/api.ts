@@ -1,3 +1,5 @@
+import { getLang } from './i18n'
+
 export type User = { id: number; name: string; is_admin: boolean }
 
 export type Song = {
@@ -11,6 +13,7 @@ export type Song = {
   status: 'queued' | 'working' | 'ready' | 'error' | null
   progress: number | null
   error: string | null
+  error_code: string | null   // known download errors, translated by the client
   added_by: string | null
   added_at: number | null
   lyrics: boolean
@@ -56,9 +59,10 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
-  const r = await fetch(path, body === undefined ? {} : {
+  const headers: Record<string, string> = { 'x-lang': getLang() }   // server messages in the UI's language
+  const r = await fetch(path, body === undefined ? { headers } : {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!r.ok) {
@@ -84,6 +88,7 @@ export const api = {
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,
+  downloadUrl: (id: string) => `/api/songs/${id}/download`,
 }
 
 export function fmtTime(s: number | null | undefined) {

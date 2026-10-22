@@ -8,6 +8,7 @@ import time
 from fastapi import HTTPException, Request, Response
 
 from db import conn
+from i18n import tr
 
 COOKIE = "yk_session"
 COOKIE_AGE = 60 * 60 * 24 * 365
@@ -46,16 +47,16 @@ def current_user(req: Request) -> dict:
     row = conn().execute("select u.* from sessions s join users u on u.id = s.user_id where s.token = ?",
                          (req.cookies.get(COOKIE, ""),)).fetchone()
     if not row:
-        raise HTTPException(401, "请先登录")
+        raise HTTPException(401, tr("Please log in", "请先登录"))
     return public(row)
 
 
 def register(name: str, pw: str, invite: str | None) -> dict:
     name = name.strip()
     if not 1 <= len(name) <= 32:
-        raise HTTPException(400, "名字要 1–32 个字")
+        raise HTTPException(400, tr("Names are 1–32 characters", "名字要 1–32 个字"))
     if len(pw) < 6:
-        raise HTTPException(400, "密码至少 6 位")
+        raise HTTPException(400, tr("Passwords need at least 6 characters", "密码至少 6 位"))
     c = conn()
     c.execute("begin immediate")
     try:
@@ -64,9 +65,9 @@ def register(name: str, pw: str, invite: str | None) -> dict:
         if not first:
             inv = c.execute("select * from invites where code = ? and used_by is null", ((invite or "").strip(),)).fetchone()
             if not inv:
-                raise HTTPException(403, "邀请码无效或已被用过")
+                raise HTTPException(403, tr("That invite code is wrong or already used", "邀请码无效或已被用过"))
         if c.execute("select 1 from users where name = ?", (name,)).fetchone():
-            raise HTTPException(409, "这个名字已经有人用了")
+            raise HTTPException(409, tr("That name is taken", "这个名字已经有人用了"))
         uid = c.execute("insert into users (name, pw_hash, is_admin, invited_by, created) values (?, ?, ?, ?, ?)",
                         (name, hash_password(pw), int(first), inv["created_by"] if inv else None, time.time())).lastrowid
         if inv:
@@ -81,7 +82,7 @@ def register(name: str, pw: str, invite: str | None) -> dict:
 def login(name: str, pw: str) -> dict:
     row = conn().execute("select * from users where name = ?", (name.strip(),)).fetchone()
     if not row or not check_password(pw, row["pw_hash"]):
-        raise HTTPException(401, "名字或密码不对")
+        raise HTTPException(401, tr("Wrong name or password", "名字或密码不对"))
     return public(row)
 
 

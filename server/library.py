@@ -15,6 +15,8 @@ import time
 import traceback
 from pathlib import Path
 
+import httpx
+
 from songstore import AUDIO, artist_title, open_store
 from songstore.identify import identify
 from songstore.keys import same_length
@@ -48,6 +50,7 @@ def view(doc: dict) -> dict:
         "status": doc.get("music_status"),
         "progress": doc.get("music_progress"),
         "error": doc.get("music_error"),
+        "error_code": doc.get("music_error_code"),
         "added_by": doc.get("added_by"),
         "added_at": doc.get("added_at") or doc.get("created"),
         "lyrics": store.file(doc["id"], "lyrics.json") is not None,
@@ -123,7 +126,7 @@ def quick(song: dict, user: dict) -> dict:
         return _queue(doc["id"], {k: v for k, v in canonical(song).items() if v and not doc.get(k)}, user)
     r = catalog.pick_source(song)
     if not r:
-        raise LookupError("没找到靠谱的来源，试试「单独选取」")
+        raise LookupError("no reliable source")
     return add(r, user, song)
 
 
@@ -160,7 +163,8 @@ def _worker():
             store.update(sid, music_status="ready", music_progress=100)
         except Exception as e:
             traceback.print_exc()
-            store.update(sid, music_status="error", music_error=friendly_error(str(e)))
+            code, msg = friendly_error(str(e))
+            store.update(sid, music_status="error", music_error=msg, music_error_code=code)
             continue
         try:
             name_and_lyrics(sid)
@@ -237,7 +241,7 @@ def to_aac(src: Path, dst: Path):
                            stdin=subprocess.DEVNULL)
     streams = json.loads(probe.stdout).get("streams") or []
     if not streams:
-        raise RuntimeError("这个文件里没有音轨")
+        raise RuntimeError("no audio track in the file")
     codec = ["-c:a", "copy"] if streams[0].get("codec_name") == "aac" else ["-c:a", "aac", "-b:a", "192k"]
     tmp = dst.with_name("audio.tmp.m4a")
     subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(src), "-vn", "-map", "0:a:0", *codec,
@@ -246,15 +250,38 @@ def to_aac(src: Path, dst: Path):
     os.replace(tmp, dst)
 
 
-def friendly_error(raw: str) -> str:
+def friendly_error(raw: str) -> tuple[str | None, str]:
+    """(code, message): known problems get a code the web app shows in the viewer's language."""
     r = raw.lower()
-    if "confirm your age" in r or "age-restricted" in r:
-        return "年龄限制：YouTube 要求登录，换一个版本吧"
-    if "not a bot" in r:
-        return "YouTube 暂时拦截了服务器，稍后重试"
-    if "private video" in r or "has been removed" in r or "unavailable" in r:
-        return "视频不可用，换一个版本吧"
-    return re.sub(r"\s+", " ", raw.replace("ERROR:", "")).strip()[:140]
+    code = "age" if "confirm your age" in r or "age-restricted" in r else \
+        "bot" if "not a bot" in r else \
+        "unavailable" if "private video" in r or "has been removed" in r or "unavailable" in r else None
+    return code, re.sub(r"\s+", " ", raw.replace("ERROR:", "")).strip()[:140]
+
+
+def tagged(sid: str) -> Path:
+    """audio.m4a with the song's name, album and cover embedded, for saving to a device. Made on first download
+    and remade when the song's details change after that."""
+    doc, d = store.get(sid), store.song_dir(sid)
+    out = d / "download.m4a"
+    if out.is_file() and out.stat().st_mtime >= doc.get("updated", 0):
+        return out
+    s = view(doc)
+    cover = d / "cover.jpg"
+    if not cover.is_file() and s["thumbnail"]:
+        try:
+            r = httpx.get(s["thumbnail"], timeout=10, follow_redirects=True)
+            if r.status_code == 200 and r.content[:3] == b"\xff\xd8\xff":   # JPEG only: what .m4a covers support
+                cover.write_bytes(r.content)
+        except httpx.HTTPError:
+            pass
+    pic = ["-i", str(cover), "-map", "0:a", "-map", "1", "-disposition:v:0", "attached_pic"] if cover.is_file() else []
+    tags = [x for k in ("title", "artist", "album") if s.get(k) for x in ("-metadata", f"{k}={s[k]}")]
+    tmp = d / "download.tmp.m4a"
+    subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(d / AUDIO), *pic, "-c", "copy", *tags,
+                    "-movflags", "+faststart", str(tmp)], check=True, capture_output=True, stdin=subprocess.DEVNULL)
+    os.replace(tmp, out)
+    return out
 
 
 def resume():

@@ -1,6 +1,7 @@
 """Yoinker: a private, shared music library. Search -> the server downloads the audio -> everyone can listen."""
 import asyncio
 import json
+import re
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -10,11 +11,18 @@ from pydantic import BaseModel
 from songstore import AUDIO
 
 import auth
+import i18n
 import catalog as cat
 import library as lib
 import search as se
 
 app = FastAPI(title="Yoinker")
+
+
+@app.middleware("http")
+async def _language(request: Request, call_next):
+    i18n.set_lang(i18n.lang_of(request.headers))
+    return await call_next(request)
 WEB = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 
@@ -91,7 +99,7 @@ def catalog_search(q: str, _=Depends(auth.current_user)):
     try:
         results = cat.search(q)
     except Exception as e:
-        raise HTTPException(502, f"搜索失败：{e}")
+        raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
     pool = lib.known()
     for r in results:
         doc = lib.find(r, pool)
@@ -106,8 +114,9 @@ def quick_add(song: CatalogSong, user=Depends(auth.current_user)):
     """快速下载: the store's copy if there is one, else the best upload (YouTube Music's official track first)."""
     try:
         return lib.quick(song.model_dump(), user)
-    except LookupError as e:
-        raise HTTPException(404, str(e))
+    except LookupError:
+        raise HTTPException(404, i18n.tr("No reliable source found: try “Choose source”",
+                                         "没找到靠谱的来源，试试「单独选取」"))
 
 
 @app.post("/api/sources")
@@ -116,7 +125,7 @@ def sources(song: CatalogSong, where: str = "youtube", _=Depends(auth.current_us
     try:
         return cat.candidates(song.model_dump(), where)
     except Exception as e:
-        raise HTTPException(502, f"搜索失败：{e}")
+        raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
 
 
 class AddSong(BaseModel):
@@ -135,7 +144,7 @@ def add_song(body: AddSong, user=Depends(auth.current_user)):
     if body.source not in ("youtube", "bilibili"):
         raise HTTPException(400, "bad source")
     if body.duration and body.duration > se.MAX_DURATION:
-        raise HTTPException(400, "太长了，不像是一首歌")
+        raise HTTPException(400, i18n.tr("Too long to be a song", "太长了，不像是一首歌"))
     r = body.model_dump(exclude={"song"})
     return lib.add(r, user, body.song.model_dump() if body.song else None)
 
@@ -148,7 +157,7 @@ def songs(_=Depends(auth.current_user)):
 def _doc_or_404(sid: str) -> dict:
     doc = lib.store.get(sid)
     if not doc or not doc.get("music_status"):
-        raise HTTPException(404, "没有这首歌")
+        raise HTTPException(404, i18n.tr("No such song", "没有这首歌"))
     return doc
 
 
@@ -165,8 +174,19 @@ def audio(sid: str, _=Depends(auth.current_user)):
     _doc_or_404(sid)
     f = lib.store.file(sid, AUDIO)
     if not f:
-        raise HTTPException(404, "还没下载好")
+        raise HTTPException(404, i18n.tr("Not downloaded yet", "还没下载好"))
     return FileResponse(f, media_type="audio/mp4", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.get("/api/songs/{sid}/download")
+def download(sid: str, _=Depends(auth.current_user)):
+    """The song as a file to keep: tagged with its name, album and cover, named "Artist - Title.m4a"."""
+    doc = _doc_or_404(sid)
+    if not lib.store.file(sid, AUDIO):
+        raise HTTPException(404, i18n.tr("Not downloaded yet", "还没下载好"))
+    s = lib.view(doc)
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", f"{s['artist']} - {s['title']}").strip() or sid
+    return FileResponse(lib.tagged(sid), media_type="audio/mp4", filename=f"{name[:150]}.m4a")
 
 
 @app.get("/api/songs/{sid}/lyrics")

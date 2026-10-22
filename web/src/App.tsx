@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, fmtTime, type CatalogSong, type Song, type Source, type User } from './api'
+import { errorText, getLang, setLang, t } from './i18n'
 import Login from './Login'
 import Player from './Player'
 
@@ -26,6 +27,7 @@ export default function App() {
 }
 
 function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [, rerender] = useState(getLang())
   const [tab, setTab] = useState<'library' | 'search'>('library')
   const [songs, setSongs] = useState<Song[]>([])
   const [queue, setQueue] = useState(loadQueue)
@@ -80,19 +82,22 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     <div className="app">
       <header>
         <nav>
-          <button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}>歌库</button>
-          <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>找歌</button>
+          <button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}>{t('library')}</button>
+          <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>{t('find')}</button>
         </nav>
         <div className="me">
-          <button className="link" onClick={invite}>邀请</button>
+          <button className="link" onClick={() => { const l = getLang() === 'zh' ? 'en' : 'zh'; setLang(l); rerender(l) }}>
+            {getLang() === 'zh' ? 'EN' : '中文'}
+          </button>
+          <button className="link" onClick={invite}>{t('invite')}</button>
           <span className="muted">{user.name}</span>
-          <button className="link" onClick={onLogout}>退出</button>
+          <button className="link" onClick={onLogout}>{t('logout')}</button>
         </div>
       </header>
       {inviteLink && (
         <div className="notice">
-          邀请链接（只能用一次）：<input readOnly value={inviteLink} onFocus={e => e.target.select()} />
-          <button className="link" onClick={() => setInviteLink('')}>关闭</button>
+          {t('inviteLink')}<input readOnly value={inviteLink} onFocus={e => e.target.select()} />
+          <button className="link" onClick={() => setInviteLink('')}>{t('close')}</button>
         </div>
       )}
       <main>
@@ -131,23 +136,24 @@ function Library({ songs, ready, currentId, play, playNext, enqueue }: Actions &
   return (
     <>
       <div className="toolbar">
-        <input placeholder="在歌库里找…" value={filter} onChange={e => setFilter(e.target.value)} />
-        <button onClick={() => play(shownReady)} disabled={!shownReady.length}>▶ 全部</button>
-        <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}>🔀 随机</button>
+        <input placeholder={t('filterLibrary')} value={filter} onChange={e => setFilter(e.target.value)} />
+        <button onClick={() => play(shownReady)} disabled={!shownReady.length}>{t('playAll')}</button>
+        <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}>{t('shuffle')}</button>
       </div>
-      <p className="muted small">{songs.length ? `${ready.length} 首歌` : '歌库还是空的：去「找歌」加几首吧。'}</p>
+      <p className="muted small">{songs.length ? t('songCount', { n: ready.length }) : t('emptyLibrary')}</p>
       {shown.map(s => (
         <div key={s.id} className={'row' + (s.id === currentId ? ' now' : '')}>
-          {s.thumbnail ? <img className="thumb" src={s.thumbnail} alt="" loading="lazy" /> : <div className="thumb" />}
+          {s.thumbnail ? <img className="thumb square" src={s.thumbnail} alt="" loading="lazy" /> : <div className="thumb square" />}
           <button className="grow" disabled={s.status !== 'ready'}
             onClick={() => play(shownReady, Math.max(0, shownReady.indexOf(s.id)))}>
             <b>{s.title}</b>
-            <span className="muted">{s.artist}{s.album && ` · ${s.album}`} · {fmtTime(s.duration)}{s.added_by && ` · ${s.added_by} 加的`}</span>
+            <span className="muted">{s.artist}{s.album && ` · ${s.album}`} · {fmtTime(s.duration)}{s.added_by && ` · ${t('addedBy', { name: s.added_by })}`}</span>
             {s.status !== 'ready' && <SongStatus song={s} />}
           </button>
           {s.status === 'ready' && <>
-            <button className="icon" onClick={() => playNext(s.id)} title="下一首播放">⤵</button>
-            <button className="icon" onClick={() => enqueue(s.id)} title="加入队列">＋</button>
+            <button className="icon" onClick={() => playNext(s.id)} title={t('playNext')}>⤵</button>
+            <button className="icon" onClick={() => enqueue(s.id)} title={t('addToQueue')}>＋</button>
+            <a className="icon" href={api.downloadUrl(s.id)} download title={t('download')}>⬇</a>
           </>}
         </div>
       ))}
@@ -157,9 +163,10 @@ function Library({ songs, ready, currentId, play, playNext, enqueue }: Actions &
 
 function SongStatus({ song }: { song: Song }) {
   if (song.status === 'error') {
-    return <span className="error">下载失败：{song.error} <a onClick={e => { e.stopPropagation(); api.retry(song.id) }}>重试</a></span>
+    return <span className="error">{t('failed', { error: errorText(song.error_code, song.error) })}{' '}
+      <a onClick={e => { e.stopPropagation(); api.retry(song.id) }}>{t('retry')}</a></span>
   }
-  return <span className="muted">{song.status === 'working' ? `下载中 ${song.progress || 0}%` : '排队中…'}</span>
+  return <span className="muted">{song.status === 'working' ? t('downloading', { p: song.progress || 0 }) : t('queued')}</span>
 }
 
 function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string, Song>; currentId?: string }) {
@@ -185,8 +192,8 @@ function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string
   return (
     <>
       <form className="toolbar" onSubmit={run}>
-        <input placeholder="歌名 / 歌手" value={q} onChange={e => setQ(e.target.value)} autoFocus />
-        <button type="submit" disabled={busy}>{busy ? '搜索中…' : '搜索'}</button>
+        <input placeholder={t('searchPlaceholder')} value={q} onChange={e => setQ(e.target.value)} autoFocus />
+        <button type="submit" disabled={busy}>{busy ? t('searching') : t('search')}</button>
       </form>
       {error && <p className="error">{error}</p>}
       {results.map(r => (
@@ -223,13 +230,13 @@ function CatalogRow({ song, lib, currentId, open, onToggle, onAdded, play, enque
           {error && <span className="error">{error}</span>}
         </div>
         {lib?.status === 'ready' ? <>
-          <button className="icon" onClick={() => play([lib.id])} title="播放">▶</button>
-          <button className="icon" onClick={() => enqueue(lib.id)} title="加入队列">＋</button>
+          <button className="icon" onClick={() => play([lib.id])} title={t('play')}>▶</button>
+          <button className="icon" onClick={() => enqueue(lib.id)} title={t('addToQueue')}>＋</button>
         </> : !lib && <>
-          <button onClick={quick} disabled={busy} title={song.instant ? '卡拉OK已经下过，马上就好' : '自动挑最合适的来源下载'}>
-            {busy ? '找来源…' : song.instant ? '秒加' : '快速下载'}
+          <button onClick={quick} disabled={busy} title={song.instant ? t('instantHint') : t('quickHint')}>
+            {busy ? t('findingSource') : song.instant ? t('instant') : t('quickDownload')}
           </button>
-          <button className={open ? 'active' : ''} onClick={onToggle}>单独选取</button>
+          <button className={open ? 'active' : ''} onClick={onToggle}>{t('pickSource')}</button>
         </>}
       </div>
       {open && <SourcePicker song={song} onAdded={onAdded} />}
@@ -252,23 +259,23 @@ function SourcePicker({ song, onAdded }: { song: CatalogSong; onAdded: (s: Song)
     <div className="sources">
       <div className="toolbar">
         <button className={where === 'youtube' ? 'active' : ''} onClick={() => setWhere('youtube')}>YouTube</button>
-        <button className={where === 'bili' ? 'active' : ''} onClick={() => setWhere('bili')}>B站</button>
+        <button className={where === 'bili' ? 'active' : ''} onClick={() => setWhere('bili')}>{t('bilibili')}</button>
       </div>
       {error && <p className="error">{error}</p>}
-      {!list && !error && <p className="muted small">找来源中…</p>}
+      {!list && !error && <p className="muted small">{t('findingSources')}</p>}
       {list?.map(r => (
         <div key={r.source + r.id} className="row">
           <img className="thumb" src={r.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
           <div className="grow">
             <b>{r.title}</b>
             <span className="muted">{r.channel}{r.album && ` · ${r.album}`} · {fmtTime(r.duration)}
-              {r.tags.map(t => <span key={t} className={'tag' + (t === 'ytmusic' ? ' good' : '')}>
-                {t === 'ytmusic' ? '官方音源' : t}</span>)}
-              {Math.abs((r.duration || 0) - (song.duration || 0)) <= 2 && <span className="tag good">时长一致</span>}
+              {r.tags.map(tag => <span key={tag} className={'tag' + (tag === 'ytmusic' ? ' good' : '')}>
+                {tag === 'ytmusic' ? t('official') : tag}</span>)}
+              {Math.abs((r.duration || 0) - (song.duration || 0)) <= 2 && <span className="tag good">{t('sameLength')}</span>}
             </span>
           </div>
-          <a href={r.url} target="_blank" rel="noreferrer" title="去原网站看看">↗</a>
-          <button onClick={() => api.add(r, song).then(onAdded).catch(e => setError((e as Error).message))}>用这个</button>
+          <a href={r.url} target="_blank" rel="noreferrer" title={t('openSource')}>↗</a>
+          <button onClick={() => api.add(r, song).then(onAdded).catch(e => setError((e as Error).message))}>{t('useThis')}</button>
         </div>
       ))}
     </div>
