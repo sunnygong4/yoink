@@ -25,7 +25,7 @@ fi
 
 if ! pgrep -f "$MATCH" > /dev/null; then
   log "server down -> starting"
-  cd "$Y"
+  cd "$Y/server"   # not $Y: "python -m" puts the cwd on sys.path, and $Y/songstore would shadow the package
   setsid nohup "$Y/server/.venv/bin/python" -m uvicorn app:app --app-dir "$Y/server" --host 127.0.0.1 --port 8100 \
     --timeout-graceful-shutdown 3 >> "$Y/logs/server.log" 2>&1 9>&- &
 fi
