@@ -61,6 +61,7 @@ export type Artist = {
   formed: string | null
   albums: ArtistAlbum[]
   top: CatalogSong[]
+  slug: string
 }
 
 export type Album = {
@@ -72,6 +73,7 @@ export type Album = {
   copyright: string | null
   description: string | null
   tracks: (CatalogSong & { track: number | null; disc: number | null })[]
+  slug: string
 }
 
 export type Lyrics = { lines: { t: number; text: string; tr?: string }[]; offset: number }
@@ -108,12 +110,21 @@ export const api = {
   invite: () => call<{ code: string }>('/api/invites', {}),
   songs: () => call<Song[]>('/api/songs'),
   catalog: (q: string) => call<CatalogSong[]>(`/api/catalog?${new URLSearchParams({ q })}`),
-  artist: (name: string) => call<Artist>(`/api/artist?${new URLSearchParams({ name })}`),
-  album: (artist: string, title: string) => call<Album>(`/api/album?${new URLSearchParams({ artist, title })}`),
+  artist: (key: string) => call<Artist>(`/api/artist?${new URLSearchParams({ key })}`),
+  artistMedia: async (name: string, kind: 'logo' | 'photo' | 'background', file: File) => {
+    const form = new FormData()
+    form.append('name', name)
+    form.append('kind', kind)
+    form.append('file', file)
+    const r = await fetch('/api/artist/media', { method: 'POST', body: form, headers: { 'x-lang': getLang() } })
+    if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({}))).detail || r.statusText)
+  },
+  album: (key: string) => call<Album>(`/api/album?${new URLSearchParams({ key })}`),
   quick: (song: CatalogSong) => call<Song>('/api/songs/quick', song),
   sources: (song: CatalogSong, where: string) => call<Source[]>(`/api/sources?where=${where}`, song),
   add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
+  remove: (id: string) => fetch(`/api/songs/${id}`, { method: 'DELETE' }),
   radio: (seed: string, exclude: string[]) => call<Song>('/api/radio', { seed, exclude }),
   keep: (id: string) => call<Song>(`/api/songs/${id}/keep`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),

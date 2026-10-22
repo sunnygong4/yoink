@@ -4,7 +4,7 @@ import { t } from './i18n'
 import * as I from './icons'
 import LyricsView from './Lyrics'
 import { ModeButtons, type Transport } from './Modes'
-import type { Page } from './Pages'
+import { albumPage, artistPage, type Page } from './Pages'
 import type { Queue } from './queue'
 import { leadArtist } from './text'
 
@@ -54,8 +54,8 @@ export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, 
           <div>
             <h1>{song.title}</h1>
             <p>{preparing ? t('preparing') : <>
-              <a onClick={() => open({ kind: 'artist', name: leadArtist(song.artist) })}>{song.artist}</a>
-              {song.album && <> · <a onClick={() => open({ kind: 'album', artist: song.artist, title: song.album! })}>{song.album}</a></>}
+              <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
+              {song.album && <> · <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
             </>}</p>
           </div>
           {song.radio && (

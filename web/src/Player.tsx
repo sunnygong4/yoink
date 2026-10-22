@@ -5,7 +5,7 @@ import * as I from './icons'
 import { useLyrics } from './Lyrics'
 import { ModeButtons, type Transport } from './Modes'
 import NowPlaying from './NowPlaying'
-import type { Page } from './Pages'
+import { albumPage, artistPage, type Page } from './Pages'
 import QueueDrawer from './QueueDrawer'
 import type { Queue } from './queue'
 import { leadArtist } from './text'
@@ -156,8 +156,8 @@ export default function Player({ q, byId, onSong, open }: {
               </div>
               <div className="lcd-sub">
                 {preparing ? t('preparing') : <>
-                  <a onClick={() => open({ kind: 'artist', name: leadArtist(song.artist) })}>{song.artist}</a>
-                  {song.album && <> — <a onClick={() => open({ kind: 'album', artist: song.artist, title: song.album! })}>{song.album}</a></>}
+                  <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
+                  {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
                 </>}
               </div>
               <div className="lcd-seek">

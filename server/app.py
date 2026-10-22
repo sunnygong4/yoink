@@ -93,7 +93,7 @@ class CatalogSong(BaseModel):
 
 
 @app.get("/api/catalog")
-def catalog_search(q: str, _=Depends(auth.current_user)):
+def catalog_search(q: str, user=Depends(auth.current_user)):
     """Songs by name (one per song per artist), each marked if it's in the library or can be added instantly."""
     if not q.strip():
         return []
@@ -101,39 +101,71 @@ def catalog_search(q: str, _=Depends(auth.current_user)):
         results = cat.search(q)
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
-    return mark(results)
+    return mark(results, user)
 
 
-def mark(songs: list[dict]) -> list[dict]:
-    """Catalog songs: which are in the library (song_id) and which the store has already (instant)."""
+def mark(songs: list[dict], user: dict) -> list[dict]:
+    """Catalog songs: which are in this person's library (song_id) and which the store has already (instant:
+    someone else, or the karaoke site, downloaded it)."""
     pool = lib.known()
+    mine = lib.owned(user)
     for r in songs:
         doc = lib.find(r, pool)
-        in_lib = doc and doc.get("music_status") in lib.IN_LIBRARY and not doc.get("music_radio")
+        in_lib = doc and doc["id"] in mine
         r["song_id"] = doc["id"] if in_lib else None
         r["instant"] = bool(doc) and not in_lib   # the karaoke site already has it: adding takes a second
     return songs
 
 
 @app.get("/api/artist")
-def artist_page(name: str, req: Request, _=Depends(auth.current_user)):
+def artist_page(key: str, req: Request, user=Depends(auth.current_user)):
+    """key: a slug (/artist/ZhouJieLun) or a name."""
     try:
-        a = dict(pages.artist(name, i18n.lang_of(req.headers)))
+        a = dict(pages.artist(pages.resolve("artist", key), i18n.lang_of(req.headers)))
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Couldn't load the artist: {e}", f"加载歌手失败：{e}"))
-    a["top"] = mark([dict(s) for s in a["top"]])
+    a["top"] = mark([dict(s) for s in a["top"]], user)
+    a["slug"] = pages.remember("artist", a["name"])
     return a
 
 
+@app.post("/api/artist/media")
+def artist_media_upload(name: str = Form(...), kind: str = Form(...), file: UploadFile = File(...),
+                        _=Depends(auth.current_user)):
+    """Someone's own logo / photo / background for an artist (Chinese bands rarely have a logo online)."""
+    ext = Path(file.filename or "x.png").suffix.lower()
+    if kind not in pages.MEDIA_KINDS or ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+        raise HTTPException(400, i18n.tr("Upload a PNG, JPG, WebP, GIF or SVG image", "请上传 PNG、JPG、WebP、GIF 或 SVG 图片"))
+    data = file.file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(400, i18n.tr("Images can be at most 10 MB", "图片最大 10 MB"))
+    pages.save_media(name, kind, data, ext)
+    return pages.overrides(name)
+
+
+@app.get("/api/artist/media")
+def artist_media(name: str, kind: str, _=Depends(auth.current_user)):
+    f = pages.media_file(name, kind) if kind in pages.MEDIA_KINDS else None
+    if not f:
+        raise HTTPException(404, "no picture")
+    headers = {"Cache-Control": "private, max-age=31536000"}   # the URL carries the file's version
+    if f.suffix == ".svg":
+        headers["Content-Security-Policy"] = "script-src 'none'"   # an uploaded SVG must not run scripts
+    return FileResponse(f, headers=headers)
+
+
 @app.get("/api/album")
-def album_page(artist: str, title: str, req: Request, _=Depends(auth.current_user)):
+def album_page(key: str, req: Request, user=Depends(auth.current_user)):
+    """key: "<artist slug>/<album slug>" or "<artist name>/<album title>"."""
+    artist, title = pages.resolve_album(key)
     try:
         a = pages.album(artist, title, i18n.lang_of(req.headers))
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Couldn't load the album: {e}", f"加载专辑失败：{e}"))
     if not a:
         raise HTTPException(404, i18n.tr("Album not found", "没找到这张专辑"))
-    return {**a, "tracks": mark([dict(s) for s in a["tracks"]])}
+    return {**a, "tracks": mark([dict(s) for s in a["tracks"]], user),
+            "slug": pages.remember_album(a["artist"], a["title"]), "artist_slug": pages.remember("artist", a["artist"])}
 
 
 @app.post("/api/songs/quick")
@@ -177,8 +209,8 @@ def add_song(body: AddSong, user=Depends(auth.current_user)):
 
 
 @app.get("/api/songs")
-def songs(_=Depends(auth.current_user)):
-    return lib.library()
+def songs(user=Depends(auth.current_user)):
+    return lib.library(user)
 
 
 def _doc_or_404(sid: str) -> dict:
@@ -210,6 +242,13 @@ def keep(sid: str, user=Depends(auth.current_user)):
     """A recommended song goes into the library."""
     _doc_or_404(sid)
     return lib.keep(sid, user)
+
+
+@app.delete("/api/songs/{sid}")
+def remove(sid: str, user=Depends(auth.current_user)):
+    """Out of this person's library (the download stays: someone else may have it, and adding it back is instant)."""
+    lib.disown(sid, user)
+    return {"ok": True}
 
 
 @app.post("/api/songs/{sid}/retry")

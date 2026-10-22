@@ -28,7 +28,7 @@ from songstore.keys import same_length, split_title
 
 import catalog
 import search as se
-from db import DATA
+from db import DATA, conn
 
 store = open_store(os.environ.get("SONGSTORE_ROOT") or DATA / "songstore")
 APP = "music"
@@ -63,12 +63,53 @@ def view(doc: dict) -> dict:
     }
 
 
-def library() -> list[dict]:
-    """Songs someone added here, plus recommended ones (radio: true, which the library list hides). What else the
-    karaoke site has stays out of sight until someone asks for it."""
-    out = [view(d) for d in store.all() if d.get("music_status") in IN_LIBRARY]
+# ---------- each person's library ----------
+
+def owned(user: dict) -> dict[str, float]:
+    """song id -> when this person added it."""
+    return {r["song_id"]: r["added_at"] for r in conn().execute(
+        "select song_id, added_at from user_songs where user_id = ?", (user["id"],))}
+
+
+def own(sid: str, user: dict):
+    conn().execute("insert or ignore into user_songs (user_id, song_id, added_at) values (?, ?, ?)",
+                   (user["id"], sid, time.time()))
+
+
+def disown(sid: str, user: dict):
+    conn().execute("delete from user_songs where user_id = ? and song_id = ?", (user["id"], sid))
+
+
+def view_for(doc: dict, user: dict, mine: dict[str, float] | None = None) -> dict:
+    """A song as this person sees it: radio = not in their library (smart play brought it; ♥ keeps it)."""
+    mine = owned(user) if mine is None else mine
+    v = view(doc)
+    v["radio"] = doc["id"] not in mine
+    if doc["id"] in mine:
+        v["added_at"] = mine[doc["id"]]
+    return v
+
+
+def library(user: dict) -> list[dict]:
+    """This person's songs, plus the ones smart play fetched for them (radio: true, the library list hides those).
+    Other people's songs and what the karaoke site has stay out of sight until they add them."""
+    mine = owned(user)
+    out = [view_for(d, user, mine) for d in store.all() if d.get("music_status") in IN_LIBRARY and (
+        d["id"] in mine or (d.get("music_radio") and d.get("added_by") == user["name"]))]
     out.sort(key=lambda s: s["added_at"] or 0, reverse=True)
     return out
+
+
+def adopt_owners():
+    """First run with per-person libraries: each song goes to the library of whoever added it."""
+    c = conn()
+    if c.execute("select count(*) from user_songs").fetchone()[0]:
+        return
+    users = {r["name"]: r["id"] for r in c.execute("select id, name from users")}
+    for d in store.all():
+        if d.get("music_status") in IN_LIBRARY and not d.get("music_radio") and d.get("added_by") in users:
+            c.execute("insert or ignore into user_songs (user_id, song_id, added_at) values (?, ?, ?)",
+                      (users[d["added_by"]], d["id"], d.get("added_at") or time.time()))
 
 
 def source_file(doc: dict) -> Path | None:
@@ -118,7 +159,9 @@ def add(r: dict, user: dict, song: dict | None = None, radio: bool = False) -> d
     sid = song_id(r["source"], r["id"])
     doc = store.get(sid)
     if doc and doc.get("music_status") in ("queued", "working", "ready"):
-        return keep(sid, user) if doc.get("music_radio") and not radio else view(doc)
+        if radio:
+            return view_for(doc, user)
+        return keep(sid, user)
     fields = {k: r.get(k) for k in ("source", "url", "title", "channel", "duration", "thumbnail")}
     fields.update(canonical(song))
     missing = {k: v for k, v in fields.items() if v and not (doc or {}).get(k)}   # never overwrite karaoke's metadata
@@ -129,7 +172,7 @@ def quick(song: dict, user: dict) -> dict:
     """快速下载: reuse the store's copy of the song if there is one, else download the best upload of it."""
     if doc := find(song):
         if doc.get("music_status") in ("queued", "working", "ready"):
-            return keep(doc["id"], user) if doc.get("music_radio") else view(doc)
+            return keep(doc["id"], user)
         return _queue(doc["id"], {k: v for k, v in canonical(song).items() if v and not doc.get(k)}, user)
     r = catalog.pick_source(song)
     if not r:
@@ -138,8 +181,12 @@ def quick(song: dict, user: dict) -> dict:
 
 
 def keep(sid: str, user: dict) -> dict:
-    """A recommended song someone liked: into the library, as theirs."""
-    return view(store.update(sid, music_radio=False, added_by=user["name"], added_at=time.time()))
+    """Into this person's library (a recommended song they liked, or one someone else already downloaded)."""
+    own(sid, user)
+    doc = store.get(sid)
+    if doc.get("music_radio"):
+        doc = store.update(sid, music_radio=False)
+    return view_for(doc, user)
 
 
 def recommend(seed: str, exclude: list[str], user: dict) -> dict | None:
@@ -167,7 +214,7 @@ def recommend(seed: str, exclude: list[str], user: dict) -> dict | None:
     if not have:
         return add(r, user, song, radio=True)
     if have.get("music_status") in ("queued", "working", "ready"):
-        return view(have)
+        return view_for(have, user)
     fields = {k: v for k, v in canonical(song).items() if v and not have.get(k)}
     return _queue(have["id"], fields, user, radio=True)
 
@@ -225,7 +272,7 @@ def import_file(upload, filename: str, info: dict, cover, user: dict) -> dict:
     sid = "local-" + sha.hexdigest()[:12]
     doc = store.get(sid)
     if doc and doc.get("music_status") in ("queued", "working", "ready"):
-        return view(doc)
+        return keep(sid, user)
     d = store.song_dir(sid)
     d.mkdir(parents=True, exist_ok=True)
     src = d / f"source{ext}"
@@ -313,7 +360,9 @@ def _queue(sid: str, fields: dict, user: dict, radio: bool = False) -> dict:
     doc = store.update(sid, **fields, music_status="queued", music_progress=0, music_error=None,
                        added_by=user["name"], added_at=time.time(), music_radio=radio)
     enqueue(sid)
-    return view(doc)
+    if not radio:
+        own(sid, user)
+    return view_for(doc, user)
 
 
 # ---------- worker ----------
@@ -472,6 +521,7 @@ def resume():
 
 
 def start():
+    adopt_owners()
     for _ in range(2):
         threading.Thread(target=_worker, daemon=True).start()
     resume()

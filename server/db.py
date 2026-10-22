@@ -22,6 +22,20 @@ create table if not exists invites (
     created real not null,
     used_by integer references users(id)
 );
+-- each person's library: the songs they added (the downloads themselves are shared, in the song store)
+create table if not exists user_songs (
+    user_id integer not null references users(id),
+    song_id text not null,
+    added_at real not null,
+    primary key (user_id, song_id)
+);
+-- readable links: /artist/ZhouJieLun -> 周杰倫, /album/Queen/HotSpace -> ["Queen", "Hot Space"]
+create table if not exists slugs (
+    kind text not null,
+    slug text not null,
+    value text not null,
+    primary key (kind, slug)
+);
 create table if not exists sessions (
     token text primary key,
     user_id integer not null references users(id),

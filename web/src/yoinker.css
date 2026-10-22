@@ -177,3 +177,10 @@
   [data-theme=yoinker] .songlist td { height: 52px; }
   [data-theme=yoinker] .drawer { bottom: 0; }
 }
+
+[data-theme=yoinker] .wordmark { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; letter-spacing: -.01em; text-transform: none; -webkit-text-stroke: 0; }
+[data-theme=yoinker] .pics-menu { background: var(--raised); border-color: var(--line); color: var(--ink); border-radius: 12px; }
+
+[data-theme=yoinker] .coverflow { background: radial-gradient(800px 300px at 50% 40%, #1d2030, #0e0e12); border-bottom: 1px solid var(--line); }
+[data-theme=yoinker] .flow-item { border-radius: 8px; overflow: hidden; -webkit-box-reflect: none; }
+[data-theme=yoinker] .flow-title { color: var(--ink); font-size: 15px; }

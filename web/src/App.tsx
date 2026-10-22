@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, fmtTime, type CatalogSong, type Song, type User } from './api'
 import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
+import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import Import from './Import'
 import Login from './Login'
-import { AlbumPage, ArtistPage, type Page } from './Pages'
+import { albumPage, AlbumPage, artistPage, ArtistPage, type Page, pageFromUrl, urlFor } from './Pages'
 import Player from './Player'
 import { useQueue } from './queue'
 import { type Actions, CatalogRow, SongStatus } from './Rows'
@@ -26,12 +27,20 @@ export default function App() {
 // Laid out like iTunes: the player across the top, a source list on the left, the page on the right.
 function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [, rerender] = useState(0)
-  const [pages, setPages] = useState<Page[]>([{ kind: 'library' }])   // a stack: artist / album pages go "back"
+  // the page follows the address bar: links can be shared, and the browser's back button works
+  const [page, setPage] = useState<Page>(pageFromUrl)
+  const [depth, setDepth] = useState(0)   // in-app steps we can go back
+  useEffect(() => {
+    history.replaceState({ page, depth: 0 }, '', location.href)
+    const onPop = (e: PopStateEvent) => { setPage(e.state?.page ?? pageFromUrl()); setDepth(e.state?.depth ?? 0) }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  const [extra, setExtra] = useState<Map<string, Song>>(new Map())   // songs met outside the library (smart play)
   const [songs, setSongs] = useState<Song[]>([])
   const [inviteLink, setInviteLink] = useState('')
   const [importing, setImporting] = useState(false)
   const q = useQueue()
-  const page = pages[pages.length - 1]
   const content = useRef<HTMLElement>(null)
   useEffect(() => { content.current?.scrollTo(0, 0) }, [page])
 
@@ -48,14 +57,25 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   // a song we just got from the server (a recommendation, a kept song): show it before the next refresh
   const onSong = useCallback((s: Song) => {
-    setSongs(xs => xs.some(x => x.id === s.id) ? xs.map(x => (x.id === s.id ? s : x)) : [s, ...xs])
+    setExtra(m => new Map(m).set(s.id, s))
+    setSongs(xs => xs.some(x => x.id === s.id) ? xs.map(x => (x.id === s.id ? s : x)) : s.radio ? xs : [s, ...xs])
   }, [])
 
-  const open = useCallback((p: Page) => setPages(ps => [...ps, p]), [])
-  const go = (p: Page) => setPages([p])   // the source list: a fresh start
-  const back = () => setPages(ps => (ps.length > 1 ? ps.slice(0, -1) : ps))
+  const open = useCallback((p: Page) => {
+    setDepth(d => {
+      history.pushState({ page: p, depth: d + 1 }, '', urlFor(p))
+      return d + 1
+    })
+    setPage(p)
+  }, [])
+  const go = (p: Page) => {   // the source list: a fresh start
+    history.pushState({ page: p, depth: 0 }, '', urlFor(p))
+    setPage(p)
+    setDepth(0)
+  }
+  const back = () => history.back()
 
-  const byId = useMemo(() => new Map(songs.map(s => [s.id, s])), [songs])
+  const byId = useMemo(() => new Map([...extra, ...songs.map(s => [s.id, s] as const)]), [songs, extra])
   const library = useMemo(() => songs.filter(s => !s.radio), [songs])
   const ready = library.filter(s => s.status === 'ready')
   const minutes = Math.round(ready.reduce((n, s) => n + (s.duration || 0), 0) / 60)
@@ -101,15 +121,15 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
               <button onClick={() => setInviteLink('')}>{t('close')}</button>
             </div>
           )}
-          {pages.length > 1 && (
+          {depth > 0 && (
             <div className="crumbs">
               <button className="back" onClick={back}><I.Prev size={10} /> {t('back')}</button>
             </div>
           )}
-          {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} {...common} />}
+          {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search byId={byId} currentId={q.current} {...actions} />}
-          {page.kind === 'artist' && <ArtistPage key={page.name} name={page.name} {...common} />}
-          {page.kind === 'album' && <AlbumPage key={page.artist + page.title} artist={page.artist} title={page.title} {...common} />}
+          {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} {...common} />}
+          {page.kind === 'album' && <AlbumPage key={page.key} pageKey={page.key} {...common} />}
         </main>
       </div>
       <footer className="statusbar">
@@ -125,6 +145,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   )
 }
 
+function fmtDate(t: number | null) {
+  return t ? new Date(t * 1000).toLocaleDateString(getLang() === 'zh' ? 'zh-CN' : undefined) : ''
+}
+
 function shuffle<T>(xs: T[]): T[] {
   const a = [...xs]
   for (let i = a.length - 1; i > 0; i--) {
@@ -136,7 +160,7 @@ function shuffle<T>(xs: T[]): T[] {
 
 // ---------- the library: songs or albums, sortable columns ----------
 
-type SortKey = 'added' | 'title' | 'time' | 'artist' | 'album' | 'by'
+type SortKey = 'added' | 'title' | 'time' | 'artist' | 'album'
 type Sort = { key: SortKey; dir: 1 | -1 }
 const PREFS = 'yoinker.library'
 
@@ -172,13 +196,14 @@ function groupAlbums(songs: Song[]): Item[] {
   return items
 }
 
-function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: Actions & {
-  songs: Song[]; currentId?: string; open: (p: Page) => void; onImport: () => void
+function Library({ songs, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+  songs: Song[]; currentId?: string; open: (p: Page) => void; onImport: () => void; onRemove: (id: string) => void
 }) {
   const [prefs, setPrefs] = useState(loadPrefs)
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [picked, setPicked] = useState<string | null>(null)   // the album Cover Flow is showing
   useEffect(() => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)) } catch { /* private mode */ } }, [prefs])
 
   const f = filter.trim().toLowerCase()
@@ -195,10 +220,28 @@ function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: 
       case 'time': return ss.reduce((n, x) => n + (x.duration || 0), 0)
       case 'artist': return s.artist
       case 'album': return s.album || '￿'   // songs without an album last
-      case 'by': return s.added_by || ''
     }
   }
-  const items = (prefs.view === 'albums' ? groupAlbums(shown) : shown.map(song => ({ kind: 'song', song }) as Item))
+  // every album in the library (one song is enough for Cover Flow), in the list's order
+  const albumKey = (s: Song) => (s.album ? `${flat(s.album)}|${flat(leadArtist(s.artist))}` : '')
+  const flow: FlowAlbum[] = []
+  const flowSongs = new Map<string, Song[]>()
+  if (prefs.view === 'albums') {
+    for (const s of shown) {
+      const k = albumKey(s)
+      if (!k) continue
+      if (!flowSongs.has(k)) {
+        flowSongs.set(k, [])
+        flow.push({ key: k, album: s.album!, artist: leadArtist(s.artist), cover: s.thumbnail, count: 0 })
+      }
+      flowSongs.get(k)!.push(s)
+    }
+    for (const a of flow) a.count = flowSongs.get(a.key)!.length
+  }
+  const pickedSongs = picked ? flowSongs.get(picked) : undefined
+  const items = (prefs.view === 'albums'
+    ? (pickedSongs ? pickedSongs.map(song => ({ kind: 'song', song }) as Item) : groupAlbums(shown))
+    : shown.map(song => ({ kind: 'song', song }) as Item))
     .sort((a, b) => {
       const va = value(a), vb = value(b)
       const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : collator.compare(String(va), String(vb))
@@ -231,18 +274,19 @@ function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: 
         </td>
         <td className="c-time">{fmtTime(s.duration)}</td>
         <td className="c-artist">
-          <a onClick={e => { e.stopPropagation(); open({ kind: 'artist', name: leadArtist(s.artist) }) }}>{s.artist}</a>
+          <a onClick={e => { e.stopPropagation(); open(artistPage(leadArtist(s.artist))) }}>{s.artist}</a>
         </td>
         <td className="c-album">
-          {s.album && <a onClick={e => { e.stopPropagation(); open({ kind: 'album', artist: s.artist, title: s.album! }) }}>{s.album}</a>}
+          {s.album && <a onClick={e => { e.stopPropagation(); open(albumPage(s.artist, s.album!)) }}>{s.album}</a>}
         </td>
-        <td className="c-by">{s.added_by}</td>
+        <td className="c-by">{fmtDate(s.added_at)}</td>
         <td className="c-act">
           {ok && <>
             <button className="mini" onClick={e => { e.stopPropagation(); playNext(s.id) }} title={t('playNext')}><I.PlayNext size={13} /></button>
             <button className="mini" onClick={e => { e.stopPropagation(); enqueue(s.id) }} title={t('addToQueue')}><I.Plus size={13} /></button>
             <a className="mini" href={api.downloadUrl(s.id)} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
           </>}
+          <button className="mini" onClick={e => { e.stopPropagation(); onRemove(s.id) }} title={t('removeFromLibrary')}><I.Close size={12} /></button>
         </td>
       </tr>
     )
@@ -260,14 +304,14 @@ function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: 
           <span className="album-cell">
             {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <span className="blank" />}
             <span>
-              <a className="name" onClick={e => { e.stopPropagation(); open({ kind: 'album', artist: g.artist, title: g.album }) }}>{g.album}</a>
+              <a className="name" onClick={e => { e.stopPropagation(); open(albumPage(g.artist, g.album)) }}>{g.album}</a>
               <span className="count">{t('nSongs', { n: g.songs.length })}</span>
             </span>
           </span>
         </td>
         <td className="c-time">{fmtTime(g.songs.reduce((n, s) => n + (s.duration || 0), 0))}</td>
         <td className="c-artist">
-          <a onClick={e => { e.stopPropagation(); open({ kind: 'artist', name: g.artist }) }}>{g.artist}</a>
+          <a onClick={e => { e.stopPropagation(); open(artistPage(g.artist)) }}>{g.artist}</a>
         </td>
         <td className="c-album" />
         <td className="c-by" />
@@ -294,6 +338,16 @@ function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: 
           <input placeholder={t('filterLibrary')} value={filter} onChange={e => setFilter(e.target.value)} />
         </label>
       </div>
+      {prefs.view === 'albums' && flow.length > 0 && (
+        <CoverFlow albums={[...flow].sort((a, b) => {
+          // the row follows the list's sort; albums are compared by their first song
+          const ia = items.findIndex(it => (it.kind === 'album' ? it.group.key : albumKey(it.song)) === a.key)
+          const ib = items.findIndex(it => (it.kind === 'album' ? it.group.key : albumKey(it.song)) === b.key)
+          return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib)
+        })} picked={pickedSongs ? picked : null} onPick={setPicked}
+          onPlay={k => play((flowSongs.get(k) ?? []).filter(s => s.status === 'ready').map(s => s.id))}
+          onOpen={a => open(albumPage(a.artist, a.album))} />
+      )}
       {songs.length === 0 ? (
         <div className="empty">
           <p>{t('emptyLibrary')}</p>
@@ -303,14 +357,12 @@ function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: 
         <table className="songlist">
           <thead>
             <tr>
-              <th className={'c-now' + (key === 'added' ? ' sorted' : '')} onClick={() => sortBy('added')} title={t('sortAdded')}>
-                {key === 'added' && <span className="arrow">{dir === 1 ? '▲' : '▼'}</span>}
-              </th>
+              <th className="c-now" />
               {th('title', t('colName'))}
               {th('time', t('colTime'), 'c-time')}
               {th('artist', t('colArtist'), 'c-artist')}
               {th('album', t('colAlbum'), 'c-album')}
-              {th('by', t('colAddedBy'), 'c-by')}
+              {th('added', t('colAdded'), 'c-by')}
               <th className="c-act" />
             </tr>
           </thead>
