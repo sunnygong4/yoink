@@ -61,10 +61,19 @@ const en = {
   importN: 'Import {n}',
   uploading: 'uploading {p}%',
   imported: 'added ✓',
+  importTitle: 'Import',
+  fromFile: 'Upload files',
+  fromLink: 'From a link',
+  linkPlaceholder: 'YouTube or Bilibili link',
+  linkHint: 'Leave the details blank to have the song worked out from the video.',
+  add: 'Add',
+  adding: 'Adding…',
+  addedSong: 'Added: {title}',
   // download errors the server reports by code
   err_age: 'Age-restricted on YouTube (needs a login): try another source',
   err_bot: 'YouTube is blocking the server for now: retry later',
   err_unavailable: 'The video is unavailable: try another source',
+  err_bili: 'Bilibili is blocking downloads right now: try a YouTube source',
 }
 
 type Dict = typeof en
@@ -131,9 +140,18 @@ const zh: Dict = {
   importN: '导入 {n} 首',
   uploading: '上传中 {p}%',
   imported: '已加入 ✓',
+  importTitle: '导入',
+  fromFile: '上传文件',
+  fromLink: '用链接',
+  linkPlaceholder: 'YouTube 或 B站链接',
+  linkHint: '信息不填的话，会根据视频自动识别。',
+  add: '添加',
+  adding: '添加中…',
+  addedSong: '已添加：{title}',
   err_age: '年龄限制：YouTube 要求登录，换一个来源吧',
   err_bot: 'YouTube 暂时拦截了服务器，稍后重试',
   err_unavailable: '视频不可用，换一个来源吧',
+  err_bili: 'B站暂时不让下载，换个 YouTube 来源吧',
 }
 
 export type Lang = 'en' | 'zh'

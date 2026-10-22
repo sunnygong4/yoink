@@ -89,6 +89,8 @@ export const api = {
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,
   downloadUrl: (id: string) => `/api/songs/${id}/download`,
+  importLink: (url: string, info: { title: string; artist: string; album: string }) =>
+    call<Song>('/api/songs/link', { url, ...info }),
   // XHR rather than fetch: it reports upload progress
   upload: (file: File, info: { title: string; artist: string; album: string }, cover: File | null,
     onProgress: (percent: number) => void) => new Promise<Song>((resolve, reject) => {

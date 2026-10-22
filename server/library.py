@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -216,6 +217,53 @@ def import_file(upload, filename: str, info: dict, cover, user: dict) -> dict:
     return _queue(sid, fields, user)
 
 
+_YT_LINK = re.compile(r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})")
+_BILI_LINK = re.compile(r"bilibili\.com/video/(BV\w+|av\d+)", re.I)
+
+
+def resolve_link(url: str) -> dict:
+    """A YouTube / Bilibili link (any of the usual forms, b23.tv short links too) as a search result."""
+    import yt_dlp
+    url = url.strip()
+    if "b23.tv" in url:
+        try:
+            url = str(httpx.get(url, follow_redirects=True, timeout=10).url)
+        except httpx.HTTPError:
+            raise ImportRejected("notfound")
+    if m := _YT_LINK.search(url):
+        source, vid, page = "youtube", m[1], f"https://www.youtube.com/watch?v={m[1]}"
+    elif m := _BILI_LINK.search(url):
+        part = (parse_qs(urlparse(url).query).get("p") or ["1"])[0]
+        part = part if part.isdigit() and part != "1" else ""   # multi-part videos: each part is its own song
+        source, vid = "bilibili", m[1] + (f"_p{part}" if part else "")
+        page = f"https://www.bilibili.com/video/{m[1]}" + (f"?p={part}" if part else "")
+    else:
+        raise ImportRejected("link")
+    try:
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+            info = ydl.extract_info(page, download=False)
+    except Exception:
+        # Bilibili currently answers yt-dlp with its anti-bot block (HTTP 412): say so rather than "not found"
+        raise ImportRejected("bili" if source == "bilibili" else "notfound")
+    if (info.get("duration") or 0) > se.MAX_DURATION:
+        raise ImportRejected("long")
+    return {"source": source, "id": vid, "url": page, "title": info.get("title") or "",
+            "channel": info.get("channel") or info.get("uploader") or "", "duration": info.get("duration"),
+            "thumbnail": info.get("thumbnail")}
+
+
+def import_link(url: str, info: dict, user: dict) -> dict:
+    """Add a video by its link. Typed details name the song; left blank, it is identified from the video."""
+    r = resolve_link(url)
+    title, artist, album = ((info.get(k) or "").strip() for k in ("title", "artist", "album"))
+    song = None
+    if title or artist or album:
+        guess_artist, guess_title = split_title(r["title"], r["channel"])
+        song = {"title": title or guess_title or r["title"], "artist": artist or guess_artist or r["channel"],
+                "album": album or None, "artwork": None}
+    return add(r, user, song)
+
+
 def original(doc: dict) -> Path | None:
     """The file someone imported, as they uploaded it."""
     return store.file(doc["id"], doc["file"]) if doc.get("source") == "local" and doc.get("file") else None
@@ -346,6 +394,7 @@ def friendly_error(raw: str) -> tuple[str | None, str]:
     r = raw.lower()
     code = "age" if "confirm your age" in r or "age-restricted" in r else \
         "bot" if "not a bot" in r else \
+        "bili" if "[bilibili]" in r else \
         "unavailable" if "private video" in r or "has been removed" in r or "unavailable" in r else None
     return code, re.sub(r"\s+", " ", raw.replace("ERROR:", "")).strip()[:140]
 

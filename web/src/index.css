@@ -78,7 +78,6 @@ nav button { background: none; border: none; font-size: 18px; font-weight: 600; 
   .app { padding-bottom: 240px; }
 }
 
-.import { margin-left: 0; }
 .filepick { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px dashed var(--line);
   border-radius: 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .filepick input { display: none; }
@@ -92,4 +91,23 @@ nav button { background: none; border: none; font-size: 18px; font-weight: 600; 
   .import .toolbar { flex-wrap: wrap; }
   .import-row .fields { flex-wrap: wrap; }
   .import-row .fields input { flex-basis: 40%; }
+}
+
+.modal-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: flex-start; justify-content: center;
+  padding: 8vh 16px 16px; background: rgba(0, 0, 0, .55); }
+.modal { width: 100%; max-width: 640px; max-height: 84vh; overflow-y: auto; padding: 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.modal-head h2 { margin: 0; font-size: 18px; }
+.import { display: flex; flex-direction: column; gap: 8px; }
+.import .wide { width: 100%; }
+.import .fields { display: flex; gap: 6px; }
+.import .fields input { flex: 1; min-width: 0; }
+.import p { margin: 0; }
+.import > button { align-self: flex-start; }
+@media (max-width: 560px) {
+  .modal-backdrop { padding: 0; }
+  .modal { max-width: none; max-height: none; height: 100%; border-radius: 0; }
+  .import .fields { flex-wrap: wrap; }
+  .import .fields input { flex-basis: 40%; }
 }

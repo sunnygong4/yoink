@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api'
 import { t } from './i18n'
 
@@ -21,8 +21,35 @@ function guess(name: string): { artist: string; title: string } {
   return parts.length >= 2 ? { artist: parts[0], title: parts.slice(1).join(' - ') } : { artist: '', title: stem }
 }
 
-/** Import people's own music files, with the song's details typed in (blank = the file's own tags, then its name). */
+/** The Import window: add songs from your own files or from a YouTube / Bilibili link, naming them yourself. */
 export default function Import({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<'file' | 'link'>('file')
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t('importTitle')}>
+        <div className="modal-head">
+          <h2>{t('importTitle')}</h2>
+          <button className="icon" onClick={onClose} title={t('close')}>✕</button>
+        </div>
+        <div className="toolbar">
+          <button className={tab === 'file' ? 'active' : ''} onClick={() => setTab('file')}>{t('fromFile')}</button>
+          <button className={tab === 'link' ? 'active' : ''} onClick={() => setTab('link')}>{t('fromLink')}</button>
+        </div>
+        {tab === 'file' ? <FileImport /> : <LinkImport />}
+      </div>
+    </div>
+  )
+}
+
+/** Your own music files, with the song's details typed in (blank = the file's own tags, then its name). */
+function FileImport() {
   const [items, setItems] = useState<Item[]>([])
   const [cover, setCover] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
@@ -56,7 +83,7 @@ export default function Import({ onClose }: { onClose: () => void }) {
   const todo = items.filter(x => x.state !== 'done').length
 
   return (
-    <div className="sources import">
+    <div className="import">
       <div className="toolbar">
         <label className="filepick">
           {t('chooseFiles')}
@@ -66,8 +93,6 @@ export default function Import({ onClose }: { onClose: () => void }) {
           {cover ? `🖼 ${cover.name}` : t('coverField')}
           <input type="file" accept="image/*" onChange={e => setCover(e.target.files?.[0] || null)} />
         </label>
-        <span className="grow" />
-        <button className="link" onClick={onClose}>{t('close')}</button>
       </div>
       {items.length > 0 && <p className="muted small">{t('importHint')}</p>}
       {items.map((it, i) => {
@@ -96,5 +121,46 @@ export default function Import({ onClose }: { onClose: () => void }) {
       })}
       {todo > 0 && <button onClick={run} disabled={busy}>{t('importN', { n: todo })}</button>}
     </div>
+  )
+}
+
+/** A YouTube / Bilibili link. Typed details name the song; left blank, it's worked out from the video. */
+function LinkImport() {
+  const [url, setUrl] = useState('')
+  const [info, setInfo] = useState({ title: '', artist: '', album: '' })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [added, setAdded] = useState<string[]>([])
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault()
+    if (!url.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      const s = await api.importLink(url, info)
+      setAdded(a => [`${s.title}${s.artist ? ` — ${s.artist}` : ''}`, ...a])
+      setUrl('')
+      setInfo({ title: '', artist: '', album: '' })
+    } catch (err) {
+      setError((err as Error).message)
+    }
+    setBusy(false)
+  }
+
+  return (
+    <form className="import" onSubmit={add}>
+      <input className="wide" placeholder={t('linkPlaceholder')} value={url} onChange={e => setUrl(e.target.value)} autoFocus />
+      <div className="fields">
+        {(['title', 'artist', 'album'] as const).map(k => (
+          <input key={k} placeholder={t(`${k}Field`)} value={info[k]} aria-label={t(`${k}Field`)}
+            onChange={e => setInfo({ ...info, [k]: e.target.value })} />
+        ))}
+      </div>
+      <p className="muted small">{t('linkHint')}</p>
+      {error && <p className="error">{error}</p>}
+      <button type="submit" disabled={busy || !url.trim()}>{busy ? t('adding') : t('add')}</button>
+      {added.map((a, i) => <p key={i} className="good small">{t('addedSong', { title: a })}</p>)}
+    </form>
   )
 }

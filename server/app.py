@@ -200,6 +200,34 @@ def cover(sid: str, _=Depends(auth.current_user)):
     return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
+class LinkImport(BaseModel):
+    url: str
+    title: str = ""
+    artist: str = ""
+    album: str = ""
+
+
+@app.post("/api/songs/link")
+def import_link(body: LinkImport, user=Depends(auth.current_user)):
+    """Import from a YouTube / Bilibili link, with the song's details as typed (blank = worked out from the video)."""
+    try:
+        return lib.import_link(body.url, body.model_dump(exclude={"url"}), user)
+    except lib.ImportRejected as e:
+        raise HTTPException(400, _import_message(e.code))
+
+
+def _import_message(code: str) -> str:
+    return {
+        "type": i18n.tr("That isn't a music file this can import", "不支持这种文件"),
+        "size": i18n.tr("Files can be at most 100 MB", "文件最大 100 MB"),
+        "noaudio": i18n.tr("There's no audio in that file", "这个文件里没有声音"),
+        "link": i18n.tr("Only YouTube and Bilibili links work", "只支持 YouTube 和 B站链接"),
+        "notfound": i18n.tr("Couldn't open that video", "打不开这个视频"),
+        "long": i18n.tr("Too long to be a song", "太长了，不像是一首歌"),
+        "bili": i18n.tr("Bilibili is blocking downloads right now: try a YouTube link", "B站暂时不让下载，换个 YouTube 链接试试"),
+    }[code]
+
+
 @app.post("/api/songs/upload")
 def upload(file: UploadFile = File(...), title: str = Form(""), artist: str = Form(""), album: str = Form(""),
            cover: UploadFile | None = File(None), user=Depends(auth.current_user)):
@@ -208,11 +236,7 @@ def upload(file: UploadFile = File(...), title: str = Form(""), artist: str = Fo
         return lib.import_file(file.file, file.filename or "upload", {"title": title, "artist": artist, "album": album},
                                cover.file if cover and cover.filename else None, user)
     except lib.ImportRejected as e:
-        raise HTTPException(400, {
-            "type": i18n.tr("That isn't a music file this can import", "不支持这种文件"),
-            "size": i18n.tr("Files can be at most 100 MB", "文件最大 100 MB"),
-            "noaudio": i18n.tr("There's no audio in that file", "这个文件里没有声音"),
-        }[e.code])
+        raise HTTPException(400, _import_message(e.code))
 
 
 @app.get("/api/songs/{sid}/lyrics")
