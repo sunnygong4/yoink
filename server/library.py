@@ -5,6 +5,7 @@ Yoinker's fields on a song document are prefixed music_ (the karaoke site owns s
     music_progress 0-100, music_error, added_by (name), added_at
 Songs added from the catalog also get display_title / display_artist / album / artwork (the real song's name and cover).
 """
+import hashlib
 import json
 import os
 import re
@@ -19,7 +20,7 @@ import httpx
 
 from songstore import AUDIO, artist_title, open_store
 from songstore.identify import identify
-from songstore.keys import same_length
+from songstore.keys import same_length, split_title
 
 import catalog
 import search as se
@@ -128,6 +129,96 @@ def quick(song: dict, user: dict) -> dict:
     if not r:
         raise LookupError("no reliable source")
     return add(r, user, song)
+
+
+# ---------- importing people's own files ----------
+
+IMPORT_TYPES = {".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".oga", ".opus", ".wma", ".aif", ".aiff", ".alac",
+                ".ape", ".wv", ".mp4", ".m4v", ".mov", ".mkv", ".webm"}
+MAX_IMPORT = 100 * 1024 * 1024   # Cloudflare (free plan) rejects request bodies over 100 MB anyway
+
+
+class ImportRejected(ValueError):
+    """A file that can't be imported; .code says why (the web app words it)."""
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def probe(path: Path) -> dict:
+    """Duration, embedded tags and whether there is audio / a cover picture in a media file."""
+    r = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration:format_tags:stream=codec_type:"
+                        "stream_disposition=attached_pic", "-of", "json", str(path)],
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    info = json.loads(r.stdout or "{}")
+    fmt = info.get("format") or {}
+    tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    streams = info.get("streams") or []
+    return {
+        "duration": round(float(fmt["duration"])) if fmt.get("duration") else None,
+        "title": tags.get("title"), "artist": tags.get("artist") or tags.get("album_artist"), "album": tags.get("album"),
+        "audio": any(s.get("codec_type") == "audio" for s in streams),
+        "picture": any((s.get("disposition") or {}).get("attached_pic") for s in streams),
+    }
+
+
+def to_jpeg(src: Path, dst: Path):
+    """A cover picture (any image, or the one embedded in a music file) as a JPEG no bigger than 1000 px."""
+    subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(src), "-an", "-frames:v", "1",
+                    "-vf", "scale='min(1000,iw)':-2", str(dst)], check=True, capture_output=True, stdin=subprocess.DEVNULL)
+
+
+def import_file(upload, filename: str, info: dict, cover, user: dict) -> dict:
+    """Add someone's own music file. info: title / artist / album as typed (blank = the file's tags, then its name).
+    Identical files are one song; the original is kept (it's what "download" gives back)."""
+    ext = Path(filename).suffix.lower()
+    if ext not in IMPORT_TYPES:
+        raise ImportRejected("type")
+    sha, size = hashlib.sha1(), 0
+    for chunk in iter(lambda: upload.read(1 << 20), b""):
+        sha.update(chunk)
+        size += len(chunk)
+        if size > MAX_IMPORT:
+            raise ImportRejected("size")
+    upload.seek(0)
+    sid = "local-" + sha.hexdigest()[:12]
+    doc = store.get(sid)
+    if doc and doc.get("music_status") in ("queued", "working", "ready"):
+        return view(doc)
+    d = store.song_dir(sid)
+    d.mkdir(parents=True, exist_ok=True)
+    src = d / f"source{ext}"
+    with open(src, "wb") as f:
+        shutil.copyfileobj(upload, f)
+    p = probe(src)
+    if not p["audio"]:
+        shutil.rmtree(d, ignore_errors=True)
+        raise ImportRejected("noaudio")
+    guess_artist, guess_title = split_title(Path(filename).stem)
+    title = (info.get("title") or "").strip() or p["title"] or guess_title or Path(filename).stem
+    artist = (info.get("artist") or "").strip() or p["artist"] or guess_artist or ""
+    album = (info.get("album") or "").strip() or p["album"]
+    art = d / "cover.jpg"
+    try:
+        if cover is not None:
+            tmp = d / "cover.upload"
+            with open(tmp, "wb") as f:
+                shutil.copyfileobj(cover, f)
+            to_jpeg(tmp, art)
+            tmp.unlink(missing_ok=True)
+        elif p["picture"]:
+            to_jpeg(src, art)
+    except subprocess.CalledProcessError:
+        art.unlink(missing_ok=True)   # an unreadable picture shouldn't stop the song
+    fields = {"source": "local", "file": src.name, "title": Path(filename).stem, "duration": p["duration"],
+              "display_title": title, "display_artist": artist, "album": album,
+              "artwork": f"/api/songs/{sid}/cover" if art.is_file() else None}
+    return _queue(sid, fields, user)
+
+
+def original(doc: dict) -> Path | None:
+    """The file someone imported, as they uploaded it."""
+    return store.file(doc["id"], doc["file"]) if doc.get("source") == "local" and doc.get("file") else None
 
 
 def _queue(sid: str, fields: dict, user: dict) -> dict:
@@ -242,7 +333,7 @@ def to_aac(src: Path, dst: Path):
     streams = json.loads(probe.stdout).get("streams") or []
     if not streams:
         raise RuntimeError("no audio track in the file")
-    codec = ["-c:a", "copy"] if streams[0].get("codec_name") == "aac" else ["-c:a", "aac", "-b:a", "192k"]
+    codec = ["-c:a", "copy"] if streams[0].get("codec_name") == "aac" else ["-c:a", "aac", "-b:a", "256k"]
     tmp = dst.with_name("audio.tmp.m4a")
     subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(src), "-vn", "-map", "0:a:0", *codec,
                     "-movflags", "+faststart", str(tmp)], check=True, capture_output=True,

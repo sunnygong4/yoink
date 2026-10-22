@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, fmtTime, type CatalogSong, type Song, type Source, type User } from './api'
 import { errorText, getLang, setLang, t } from './i18n'
+import Import from './Import'
 import Login from './Login'
 import Player from './Player'
 
@@ -129,6 +130,7 @@ function shuffle<T>(xs: T[]): T[] {
 
 function Library({ songs, ready, currentId, play, playNext, enqueue }: Actions & { songs: Song[]; ready: Song[]; currentId?: string }) {
   const [filter, setFilter] = useState('')
+  const [importing, setImporting] = useState(false)
   const f = filter.trim().toLowerCase()
   const shown = f ? songs.filter(s => `${s.title} ${s.artist} ${s.added_by}`.toLowerCase().includes(f)) : songs
   const shownReady = shown.filter(s => s.status === 'ready').map(s => s.id)
@@ -139,7 +141,9 @@ function Library({ songs, ready, currentId, play, playNext, enqueue }: Actions &
         <input placeholder={t('filterLibrary')} value={filter} onChange={e => setFilter(e.target.value)} />
         <button onClick={() => play(shownReady)} disabled={!shownReady.length}>{t('playAll')}</button>
         <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}>{t('shuffle')}</button>
+        <button className={importing ? 'active' : ''} onClick={() => setImporting(!importing)}>{t('importBtn')}</button>
       </div>
+      {importing && <Import onClose={() => setImporting(false)} />}
       <p className="muted small">{songs.length ? t('songCount', { n: ready.length }) : t('emptyLibrary')}</p>
       {shown.map(s => (
         <div key={s.id} className={'row' + (s.id === currentId ? ' now' : '')}>

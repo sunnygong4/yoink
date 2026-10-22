@@ -1,0 +1,100 @@
+import { useState } from 'react'
+import { api } from './api'
+import { t } from './i18n'
+
+type Item = {
+  file: File
+  title: string
+  artist: string
+  album: string
+  state: 'ready' | 'uploading' | 'done' | 'error'
+  progress: number
+  error: string
+}
+
+const ACCEPT = 'audio/*,video/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.wma,.aif,.aiff,.alac,.ape,.wv,.mkv,.webm'
+
+/** "Artist - Title.mp3" -> what the server will probably call it if the fields stay blank (shown as placeholders). */
+function guess(name: string): { artist: string; title: string } {
+  const stem = name.replace(/\.[^.]+$/, '')
+  const parts = stem.split(/\s+[-–—]\s+/)
+  return parts.length >= 2 ? { artist: parts[0], title: parts.slice(1).join(' - ') } : { artist: '', title: stem }
+}
+
+/** Import people's own music files, with the song's details typed in (blank = the file's own tags, then its name). */
+export default function Import({ onClose }: { onClose: () => void }) {
+  const [items, setItems] = useState<Item[]>([])
+  const [cover, setCover] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const update = (i: number, patch: Partial<Item>) => setItems(xs => xs.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+
+  function pick(files: FileList | null) {
+    const added = [...(files || [])].map(file => ({
+      file, title: '', artist: '', album: '', state: 'ready' as const, progress: 0, error: '',
+    }))
+    setItems(xs => [...xs.filter(x => x.state !== 'done'), ...added])
+  }
+
+  async function run() {
+    setBusy(true)
+    for (let i = 0; i < items.length; i++) {   // one at a time: big files over a home connection
+      const it = items[i]
+      if (it.state === 'done') continue
+      update(i, { state: 'uploading', progress: 0, error: '' })
+      try {
+        await api.upload(it.file, { title: it.title, artist: it.artist, album: it.album }, cover,
+          p => update(i, { progress: p }))
+        update(i, { state: 'done' })
+      } catch (e) {
+        update(i, { state: 'error', error: (e as Error).message })
+      }
+    }
+    setBusy(false)
+  }
+
+  const todo = items.filter(x => x.state !== 'done').length
+
+  return (
+    <div className="sources import">
+      <div className="toolbar">
+        <label className="filepick">
+          {t('chooseFiles')}
+          <input type="file" multiple accept={ACCEPT} onChange={e => { pick(e.target.files); e.target.value = '' }} />
+        </label>
+        <label className="filepick">
+          {cover ? `🖼 ${cover.name}` : t('coverField')}
+          <input type="file" accept="image/*" onChange={e => setCover(e.target.files?.[0] || null)} />
+        </label>
+        <span className="grow" />
+        <button className="link" onClick={onClose}>{t('close')}</button>
+      </div>
+      {items.length > 0 && <p className="muted small">{t('importHint')}</p>}
+      {items.map((it, i) => {
+        const g = guess(it.file.name)
+        const locked = it.state === 'uploading' || it.state === 'done'
+        return (
+          <div key={i} className="import-row">
+            <div className="muted small">
+              {it.file.name} · {(it.file.size / 1048576).toFixed(1)} MB
+              {it.state === 'uploading' && ` · ${t('uploading', { p: it.progress })}`}
+              {it.state === 'done' && <span className="good"> · {t('imported')}</span>}
+              {it.state === 'error' && <span className="error"> · {it.error}</span>}
+            </div>
+            <div className="fields">
+              <input placeholder={g.title || t('titleField')} value={it.title} disabled={locked}
+                onChange={e => update(i, { title: e.target.value })} aria-label={t('titleField')} />
+              <input placeholder={g.artist || t('artistField')} value={it.artist} disabled={locked}
+                onChange={e => update(i, { artist: e.target.value })} aria-label={t('artistField')} />
+              <input placeholder={t('albumField')} value={it.album} disabled={locked}
+                onChange={e => update(i, { album: e.target.value })} aria-label={t('albumField')} />
+              <button className="icon" disabled={locked} title={t('removeFromQueue')}
+                onClick={() => setItems(xs => xs.filter((_, j) => j !== i))}>✕</button>
+            </div>
+          </div>
+        )
+      })}
+      {todo > 0 && <button onClick={run} disabled={busy}>{t('importN', { n: todo })}</button>}
+    </div>
+  )
+}

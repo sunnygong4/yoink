@@ -77,3 +77,19 @@ nav button { background: none; border: none; font-size: 18px; font-weight: 600; 
   .panel { bottom: 150px; }
   .app { padding-bottom: 240px; }
 }
+
+.import { margin-left: 0; }
+.filepick { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px dashed var(--line);
+  border-radius: 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.filepick input { display: none; }
+.toolbar .grow { flex: 1; }
+.import-row { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.import-row .fields { display: flex; gap: 6px; margin-top: 4px; }
+.import-row .fields input { flex: 1; min-width: 0; }
+.import > button { margin-top: 8px; }
+.good { color: #6fd08c; }
+@media (max-width: 560px) {
+  .import .toolbar { flex-wrap: wrap; }
+  .import-row .fields { flex-wrap: wrap; }
+  .import-row .fields input { flex-basis: 40%; }
+}

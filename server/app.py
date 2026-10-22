@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -186,7 +186,33 @@ def download(sid: str, _=Depends(auth.current_user)):
         raise HTTPException(404, i18n.tr("Not downloaded yet", "还没下载好"))
     s = lib.view(doc)
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", f"{s['artist']} - {s['title']}").strip() or sid
+    if orig := lib.original(doc):   # someone's own file: give it back exactly as it was imported
+        return FileResponse(orig, filename=f"{name[:150]}{orig.suffix}")
     return FileResponse(lib.tagged(sid), media_type="audio/mp4", filename=f"{name[:150]}.m4a")
+
+
+@app.get("/api/songs/{sid}/cover")
+def cover(sid: str, _=Depends(auth.current_user)):
+    _doc_or_404(sid)
+    f = lib.store.file(sid, "cover.jpg")
+    if not f:
+        raise HTTPException(404, "no cover")
+    return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.post("/api/songs/upload")
+def upload(file: UploadFile = File(...), title: str = Form(""), artist: str = Form(""), album: str = Form(""),
+           cover: UploadFile | None = File(None), user=Depends(auth.current_user)):
+    """Import: someone's own music file, with the song's details as they typed them (blank = the file's own tags)."""
+    try:
+        return lib.import_file(file.file, file.filename or "upload", {"title": title, "artist": artist, "album": album},
+                               cover.file if cover and cover.filename else None, user)
+    except lib.ImportRejected as e:
+        raise HTTPException(400, {
+            "type": i18n.tr("That isn't a music file this can import", "不支持这种文件"),
+            "size": i18n.tr("Files can be at most 100 MB", "文件最大 100 MB"),
+            "noaudio": i18n.tr("There's no audio in that file", "这个文件里没有声音"),
+        }[e.code])
 
 
 @app.get("/api/songs/{sid}/lyrics")

@@ -89,6 +89,26 @@ export const api = {
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,
   downloadUrl: (id: string) => `/api/songs/${id}/download`,
+  // XHR rather than fetch: it reports upload progress
+  upload: (file: File, info: { title: string; artist: string; album: string }, cover: File | null,
+    onProgress: (percent: number) => void) => new Promise<Song>((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', file)
+    Object.entries(info).forEach(([k, v]) => form.append(k, v))
+    if (cover) form.append('cover', cover)
+    const x = new XMLHttpRequest()
+    x.open('POST', '/api/songs/upload')
+    x.setRequestHeader('x-lang', getLang())
+    x.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round(100 * e.loaded / e.total)) }
+    x.onload = () => {
+      let body: { detail?: string } & Song
+      try { body = JSON.parse(x.responseText) } catch { body = {} as Song }
+      if (x.status < 300) resolve(body)
+      else reject(new ApiError(x.status, body.detail || (x.status === 413 ? 'File too large' : x.statusText)))
+    }
+    x.onerror = () => reject(new ApiError(0, 'Network error'))
+    x.send(form)
+  }),
 }
 
 export function fmtTime(s: number | null | undefined) {
