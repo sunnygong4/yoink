@@ -3,7 +3,9 @@ import asyncio
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -154,6 +156,29 @@ def artist_media(name: str, kind: str, _=Depends(auth.current_user)):
     return FileResponse(f, headers=headers)
 
 
+# covers come from other sites, which don't allow reading their pixels; the album page needs them for its colours
+COVER_HOSTS = ("mzstatic.com", "ytimg.com", "theaudiodb.com", "dzcdn.net", "music.126.net", "wikimedia.org", "hdslb.com")
+_covers = httpx.Client(timeout=10, follow_redirects=True, headers={"User-Agent": "Yoinker/1.0 (https://music.sunnygong.com)"})
+
+
+@app.get("/api/cover")
+def cover_proxy(url: str, _=Depends(auth.current_user)):
+    host = (urlparse(url).hostname or "").lower()
+    if urlparse(url).scheme != "https" or not any(host == h or host.endswith("." + h) for h in COVER_HOSTS):
+        raise HTTPException(400, "not a cover")
+    r = None
+    for _attempt in range(2):   # image CDNs drop the odd connection
+        try:
+            r = _covers.get(url)
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
+                break
+        except httpx.HTTPError:
+            r = None
+    if r is None or r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/"):
+        raise HTTPException(502, "cover unavailable")
+    return Response(r.content, media_type=r.headers["content-type"], headers={"Cache-Control": "private, max-age=604800"})
+
+
 @app.get("/api/album")
 def album_page(key: str, req: Request, user=Depends(auth.current_user)):
     """key: "<artist slug>/<album slug>" or "<artist name>/<album title>"."""
@@ -221,7 +246,7 @@ def _doc_or_404(sid: str) -> dict:
 
 
 class RadioRequest(BaseModel):
-    seed: str
+    seed: str | None = None   # none: something like a random song from their library
     exclude: list[str] = []
 
 
@@ -235,6 +260,22 @@ def radio(body: RadioRequest, user=Depends(auth.current_user)):
     if not song:
         raise HTTPException(404, i18n.tr("Nothing to recommend", "没有可推荐的歌"))
     return song
+
+
+class Play(BaseModel):
+    song_id: str
+
+
+@app.post("/api/plays")
+def played(body: Play, user=Depends(auth.current_user)):
+    """The player reports a song as played (after 30 s, or at its end if shorter)."""
+    lib.record_play(body.song_id, user)
+    return {"ok": True}
+
+
+@app.get("/api/plays")
+def plays(user=Depends(auth.current_user)):
+    return lib.history(user)
 
 
 @app.post("/api/songs/{sid}/keep")

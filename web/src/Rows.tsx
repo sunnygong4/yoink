@@ -61,7 +61,7 @@ export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded,
   )
 }
 
-function SourcePicker({ song, onAdded }: { song: CatalogSong; onAdded: (s: Song) => void }) {
+export function SourcePicker({ song, onAdded }: { song: CatalogSong; onAdded: (s: Song) => void }) {
   const [where, setWhere] = useState('youtube')
   const [list, setList] = useState<Source[] | null>(null)
   const [error, setError] = useState('')

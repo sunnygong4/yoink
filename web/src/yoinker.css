@@ -184,3 +184,11 @@
 [data-theme=yoinker] .coverflow { background: radial-gradient(800px 300px at 50% 40%, #1d2030, #0e0e12); border-bottom: 1px solid var(--line); }
 [data-theme=yoinker] .flow-item { border-radius: 8px; overflow: hidden; -webkit-box-reflect: none; }
 [data-theme=yoinker] .flow-title { color: var(--ink); font-size: 15px; }
+
+[data-theme=yoinker] .ialbum h1 { font-weight: 700; }
+[data-theme=yoinker] .ia-cover img { border-radius: 10px; }
+[data-theme=yoinker] .switch .track { background: #3a3a44; border: none; box-shadow: none; }
+[data-theme=yoinker] .switch input:checked + .track { background: var(--accent); }
+[data-theme=yoinker] .switch .knob { background: #fff; }
+[data-theme=yoinker] .tag.smart { color: #c7b3ff; border-color: #4b3f7a; background: none; }
+[data-theme=yoinker] .lucky:not(:disabled) { color: #c7b3ff; }

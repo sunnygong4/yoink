@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { api, fmtTime, type Song } from './api'
 import { t } from './i18n'
 import * as I from './icons'
+import { AutoplaySwitch } from './Modes'
 import type { Queue } from './queue'
 
 /** The play queue, sliding in from the right: what's playing, what's next, and smart play's picks. */
@@ -46,9 +47,7 @@ export default function QueueDrawer({ open, onClose, q, byId, onSong, smartBusy 
         </div>
 
         <div className="drawer-foot">
-          <button className={'chip' + (q.smart ? ' on' : '')} onClick={q.toggleSmart}>
-            <I.Sparkle size={16} /> {t(q.smart ? 'smartOn' : 'smartOff')}
-          </button>
+          <AutoplaySwitch q={q} />
           <span className="muted small">{t('smartHint')}</span>
         </div>
       </aside>

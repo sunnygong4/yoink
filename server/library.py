@@ -100,6 +100,79 @@ def library(user: dict) -> list[dict]:
     return out
 
 
+# ---------- play history; smart-play songs are only kept for a while ----------
+
+RADIO_GRACE = 20 * 60          # after a smart-play song was played (time to go back to it, or ♥ it)
+RADIO_UNPLAYED = 2 * 24 * 3600   # fetched but never played
+
+
+def record_play(sid: str, user: dict):
+    doc = store.get(sid)
+    if not doc:
+        return
+    v = view(doc)
+    radio = sid not in owned(user)
+    conn().execute("insert into plays (user_id, song_id, played_at, radio, title, artist, album, thumbnail, source, url)"
+                   " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (user["id"], sid, time.time(), int(radio), v["title"], v["artist"], v["album"], v["thumbnail"],
+                    doc.get("source"), doc.get("url")))
+    if doc.get("music_radio"):
+        store.update(sid, music_expires=time.time() + RADIO_GRACE)
+
+
+def history(user: dict, limit: int = 300) -> list[dict]:
+    mine = owned(user)
+    out = []
+    for r in conn().execute("select * from plays where user_id = ? order by played_at desc limit ?", (user["id"], limit)):
+        doc = store.get(r["song_id"])
+        out.append({"song_id": r["song_id"], "played_at": r["played_at"], "radio": bool(r["radio"]),
+                    "title": r["title"], "artist": r["artist"], "album": r["album"], "thumbnail": r["thumbnail"],
+                    "source": r["source"], "url": r["url"], "in_library": r["song_id"] in mine,
+                    "available": bool(doc and doc.get("music_status") == "ready" and store.file(r["song_id"], AUDIO)),
+                    "song": view_for(doc, user, mine) if doc and doc.get("music_status") in IN_LIBRARY else None})
+    return out
+
+
+def _owner_count(sid: str) -> int:
+    return conn().execute("select count(*) from user_songs where song_id = ?", (sid,)).fetchone()[0]
+
+
+MUSIC_FILES = (AUDIO, "download.m4a", "download.tmp.m4a", "audio.tmp.m4a")
+
+
+def clean_radio():
+    """Delete smart-play songs nobody kept: shortly after they were played, or if never played, after a while.
+    Files another app (karaoke) still holds stay; only Yoinker's audio goes."""
+    now = time.time()
+    for d in store.all():
+        if not d.get("music_radio") or d.get("music_status") in ("queued", "working"):
+            continue
+        sid = d["id"]
+        if _owner_count(sid):   # someone ♥ it (or added it some other way)
+            store.update(sid, music_radio=False)
+            continue
+        expires = d.get("music_expires") or (d.get("added_at") or d.get("created") or now) + RADIO_UNPLAYED
+        if now < expires:
+            continue
+        store.release(sid, APP)
+        if store.holders(sid):
+            for name in MUSIC_FILES:
+                (store.song_dir(sid) / name).unlink(missing_ok=True)
+            store.update(sid, music_status=None, music_radio=None, music_progress=None, music_expires=None)
+        else:
+            store.delete(sid)
+        print(f"[library] dropped smart-play song {sid}")
+
+
+def _janitor():
+    while True:
+        try:
+            clean_radio()
+        except Exception:
+            traceback.print_exc()
+        time.sleep(10 * 60)
+
+
 def adopt_owners():
     """First run with per-person libraries: each song goes to the library of whoever added it."""
     c = conn()
@@ -189,10 +262,14 @@ def keep(sid: str, user: dict) -> dict:
     return view_for(doc, user)
 
 
-def recommend(seed: str, exclude: list[str], user: dict) -> dict | None:
+def recommend(seed: str | None, exclude: list[str], user: dict) -> dict | None:
     """Smart play: a song like `seed` that isn't in `exclude` (the queue, recently played), downloaded if needed.
-    Picks at random among the closest few so the same seed doesn't always lead to the same song."""
-    doc = store.get(seed)
+    Picks at random among the closest few so the same seed doesn't always lead to the same song. No seed (✨ with
+    nothing playing): a song like a random one from their library."""
+    if not seed:
+        mine = [sid for sid in owned(user) if (d := store.get(sid)) and d.get("music_status") == "ready"]
+        seed = random.choice(mine) if mine else None
+    doc = store.get(seed) if seed else None
     if not doc:
         return None
     skip = set(exclude) | {seed}
@@ -522,6 +599,7 @@ def resume():
 
 def start():
     adopt_owners()
+    threading.Thread(target=_janitor, daemon=True).start()
     for _ in range(2):
         threading.Thread(target=_worker, daemon=True).start()
     resume()

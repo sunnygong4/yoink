@@ -36,6 +36,16 @@ create table if not exists slugs (
     value text not null,
     primary key (kind, slug)
 );
+-- what each person played (a copy of the song's name: smart-play songs are deleted after a while)
+create table if not exists plays (
+    id integer primary key,
+    user_id integer not null references users(id),
+    song_id text not null,
+    played_at real not null,
+    radio integer not null default 0,   -- smart play brought it (it wasn't in their library)
+    title text, artist text, album text, thumbnail text, source text, url text
+);
+create index if not exists plays_by_user on plays(user_id, played_at);
 create table if not exists sessions (
     token text primary key,
     user_id integer not null references users(id),

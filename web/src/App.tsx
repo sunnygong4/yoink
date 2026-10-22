@@ -5,7 +5,7 @@ import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import Import from './Import'
 import Login from './Login'
-import { albumPage, AlbumPage, artistPage, ArtistPage, type Page, pageFromUrl, urlFor } from './Pages'
+import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, urlFor } from './Pages'
 import Player from './Player'
 import { useQueue } from './queue'
 import { type Actions, CatalogRow, SongStatus } from './Rows'
@@ -103,6 +103,9 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           </button>
           <button onClick={() => setImporting(true)}><I.Upload size={15} /> <span>{t('importBtn')}</span></button>
           <h4>{user.name}</h4>
+          <button className={page.kind === 'history' ? 'on' : ''} onClick={() => go({ kind: 'history' })}>
+            <span className="glyph">◷</span> <span>{t('history')}</span>
+          </button>
           <button onClick={invite}><I.Plus size={15} /> <span>{t('invite')}</span></button>
           <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }}>
             <span className="glyph">文</span> <span>{t('language')}</span>
@@ -128,6 +131,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           )}
           {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search byId={byId} currentId={q.current} {...actions} />}
+          {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} {...common} />}
           {page.kind === 'album' && <AlbumPage key={page.key} pageKey={page.key} {...common} />}
         </main>

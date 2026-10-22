@@ -11,10 +11,12 @@ export type Transport = {
   seek: (t: number) => void
   next: () => void
   prev: () => void
+  lucky: () => void      // ✨: play a new song (like this one) right now
+  luckyBusy: boolean
 }
 
-/** Shuffle / repeat / smart-play toggles (used in the bar and the full-screen view). */
-export function ModeButtons({ q, only, busy }: { q: Queue; only?: 'shuffle' | 'repeat' | 'smart'; busy?: boolean }) {
+/** Shuffle / repeat toggles (the bar and the full-screen view). */
+export function ModeButtons({ q, only }: { q: Queue; only?: 'shuffle' | 'repeat' }) {
   const show = (k: string) => !only || only === k
   return (
     <>
@@ -28,12 +30,25 @@ export function ModeButtons({ q, only, busy }: { q: Queue; only?: 'shuffle' | 'r
           {q.repeat === 'one' ? <I.RepeatOne size={15} /> : <I.Repeat size={15} />}
         </button>
       )}
-      {show('smart') && (
-        <button className={'square mode' + (q.smart ? ' pressed' : '') + (busy ? ' busy' : '')} onClick={q.toggleSmart}
-          title={`${t(q.smart ? 'smartOn' : 'smartOff')} — ${t('smartHint')}`} aria-pressed={q.smart}>
-          <I.Sparkle size={15} />
-        </button>
-      )}
     </>
+  )
+}
+
+/** ✨: one press plays a song smart play picks (like the current one, or like your library), right away. */
+export function LuckyButton({ tr }: { tr: Pick<Transport, 'lucky' | 'luckyBusy'> }) {
+  return (
+    <button className={'square mode lucky' + (tr.luckyBusy ? ' busy' : '')} onClick={tr.lucky} disabled={tr.luckyBusy}
+      title={t('luckyHint')}><I.Sparkle size={15} /></button>
+  )
+}
+
+/** Autoplay: when the queue runs out, keep going with similar songs. */
+export function AutoplaySwitch({ q }: { q: Queue }) {
+  return (
+    <label className="switch" title={t('smartHint')}>
+      <input type="checkbox" checked={q.smart} onChange={q.toggleSmart} />
+      <span className="track"><span className="knob" /></span>
+      <span className="switch-label">{t('autoplay')}</span>
+    </label>
   )
 }

@@ -66,6 +66,14 @@ export function useQueue() {
     setAutoplay(true)
   }, [])
 
+  /** Straight to this song: it goes right after the current one, and plays. */
+  const playNow = useCallback((id: string) => {
+    setAutoplay(true)
+    setQ(s => s.ids.length
+      ? { ...s, ids: [...s.ids.slice(0, s.pos + 1), id, ...s.ids.slice(s.pos + 1)], pos: s.pos + 1 }
+      : { ...s, ids: [id], pos: 0 })
+  }, [])
+
   const enqueue = useCallback((id: string) => {
     setQ(s => s.ids.length ? { ...s, ids: [...s.ids, id] } : { ...s, ids: [id], pos: 0 })
     setAutoplay(true)
@@ -114,7 +122,7 @@ export function useQueue() {
   return {
     ...q, autoplay, current: q.ids[q.pos] as string | undefined,
     play, playNext, enqueue, jump, remove, clearUpcoming, next, prev, toggleShuffle, cycleRepeat, toggleSmart,
-    appendRecommended,
+    appendRecommended, playNow,
   }
 }
 

@@ -5,6 +5,7 @@ NetEase (Chinese-language artists: photo, other names), Wikidata (logo, photo), 
 match exactly: a wrong artist's picture is worse than none. Everything is cached for a day; pictures people
 upload (data/artists/<name>/) override all of it.
 """
+import hashlib
 import json
 import re
 import threading
@@ -21,18 +22,49 @@ from db import DATA, conn
 _client = httpx.Client(timeout=10, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
 _cache: dict[tuple, tuple[float, object]] = {}
 _lock = threading.Lock()
-TTL = 24 * 3600
+TTL = {"artist": 7 * 24 * 3600, "album": 30 * 24 * 3600}   # on disk too: a restart doesn't refetch everything
+CACHE_DIR = DATA / "cache" / "pages"
 AUDIODB = "https://www.theaudiodb.com/api/v1/json/123"
 
 
-def _cached(key: tuple, make):
+def _cache_file(key: tuple) -> Path:
+    return CACHE_DIR / (hashlib.sha1(json.dumps(key, ensure_ascii=False).encode()).hexdigest() + ".json")
+
+
+def _cache_get(key: tuple) -> tuple[float, object] | None:
     with _lock:
         hit = _cache.get(key)
-    if hit and time.time() - hit[0] < TTL:
+    if hit:
+        return hit
+    f = _cache_file(key)
+    try:
+        saved = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    hit = (saved["t"], saved["v"])
+    with _lock:
+        _cache[key] = hit
+    return hit
+
+
+def _cache_drop(key: tuple):
+    with _lock:
+        _cache.pop(key, None)
+    _cache_file(key).unlink(missing_ok=True)
+
+
+def _cached(key: tuple, make):
+    hit = _cache_get(key)
+    if hit and time.time() - hit[0] < TTL[key[0]]:
         return hit[1]
     value = make()
+    now = time.time()
     with _lock:
-        _cache[key] = (time.time(), value)
+        _cache[key] = (now, value)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = _cache_file(key).with_suffix(".tmp")
+    tmp.write_text(json.dumps({"t": now, "v": value}, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(_cache_file(key))
     return value
 
 
@@ -158,11 +190,9 @@ def _wikipedia(lang: str, title: str | None) -> str | None:
 
 def artist(name: str, lang: str) -> dict:
     key = ("artist", flat(name))
-    with _lock:
-        hit = _cache.get(key)
+    hit = _cache_get(key)
     if hit and not hit[1]["photo"] and time.time() - hit[0] > INCOMPLETE_TTL:
-        with _lock:
-            _cache.pop(key, None)
+        _cache_drop(key)
     a = dict(_cached(key, lambda: _artist(name)))
     bios = a.pop("bios")
     a["bio"] = (bios.get("zh") if lang == "zh" else None) or bios.get("en")
@@ -269,7 +299,11 @@ def save_media(name: str, kind: str, data: bytes, ext: str):
 # ---------- album ----------
 
 def album(artist_name: str, title: str, lang: str) -> dict | None:
-    return _cached(("album", flat(artist_name), flat(title), lang), lambda: _album(artist_name, title, lang))
+    key = ("album", flat(artist_name), flat(title), lang)
+    a = _cached(key, lambda: _album(artist_name, title, lang))
+    if a is None:
+        _cache_drop(key)   # not found may be a hiccup: ask again next time
+    return a
 
 
 def _album(artist_name: str, title: str, lang: str) -> dict | None:

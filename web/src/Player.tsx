@@ -3,7 +3,7 @@ import { api, fmtTime, type Song } from './api'
 import { t } from './i18n'
 import * as I from './icons'
 import { useLyrics } from './Lyrics'
-import { ModeButtons, type Transport } from './Modes'
+import { LuckyButton, ModeButtons, type Transport } from './Modes'
 import NowPlaying from './NowPlaying'
 import { albumPage, artistPage, type Page } from './Pages'
 import QueueDrawer from './QueueDrawer'
@@ -28,7 +28,9 @@ export default function Player({ q, byId, onSong, open }: {
   const [drawer, setDrawer] = useState(false)
   const [full, setFull] = useState(false)
   const [smartBusy, setSmartBusy] = useState(false)
+  const [luckyBusy, setLuckyBusy] = useState(false)
   const asked = useRef(new Set<string>())   // songs we already asked a recommendation for
+  const reported = useRef<string | null>(null)   // the song whose play went into the history
 
   const song = q.current ? byId.get(q.current) ?? null : null
   const ready = song?.status === 'ready'
@@ -42,6 +44,7 @@ export default function Player({ q, byId, onSong, open }: {
     if (!song || !ready) { a.removeAttribute('src'); a.load(); setTime(0); setDuration(song?.duration || 0); return }
     a.src = api.audioUrl(song.id)
     setTime(0)
+    reported.current = null
     if (q.autoplay) a.play().catch(() => setPlaying(false))
   }, [song?.id, ready])
 
@@ -61,6 +64,26 @@ export default function Player({ q, byId, onSong, open }: {
       q.appendRecommended(s.id)
     } catch { /* nothing to recommend: the queue just ends */ }
     setSmartBusy(false)
+  }, [song, q, onSong])
+
+  // into the play history once it's really been listened to: 30 s, or the end of a shorter song
+  useEffect(() => {
+    if (!song || !ready || reported.current === song.id) return
+    if (time >= 30 || (duration > 0 && time >= duration - 1)) {
+      reported.current = song.id
+      api.played(song.id).catch(() => {})
+    }
+  }, [song, ready, time, duration])
+
+  // ✨: a new song right now, like the current one (or like something in the library)
+  const lucky = useCallback(async () => {
+    setLuckyBusy(true)
+    try {
+      const s = await api.radio(song?.id ?? null, [...q.played, ...q.ids])
+      onSong(s)
+      q.playNow(s.id)
+    } catch (e) { alert((e as Error).message) }
+    setLuckyBusy(false)
   }, [song, q, onSong])
 
   useEffect(() => {
@@ -112,7 +135,7 @@ export default function Player({ q, byId, onSong, open }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [toggle])
 
-  const tr: Transport = { playing, time, duration, toggle, seek, next, prev }
+  const tr: Transport = { playing, time, duration, toggle, seek, next, prev, lucky, luckyBusy }
   const preparing = song && !ready && song.status !== 'error'
 
   return (
@@ -172,7 +195,8 @@ export default function Player({ q, byId, onSong, open }: {
         </div>
 
         <div className="modes">
-          <ModeButtons q={q} busy={smartBusy} />
+          <ModeButtons q={q} />
+          <LuckyButton tr={tr} />
           <button className={'square' + (drawer ? ' pressed' : '')} onClick={() => setDrawer(!drawer)} title={t('queue')}>
             <I.QueueIcon size={15} />
           </button>
@@ -181,7 +205,7 @@ export default function Player({ q, byId, onSong, open }: {
 
       <QueueDrawer open={drawer} onClose={() => setDrawer(false)} q={q} byId={byId} onSong={onSong} smartBusy={smartBusy} />
       {full && song && (
-        <NowPlaying song={song} tr={tr} lyrics={lyrics} q={q} smartBusy={smartBusy} preparing={!!preparing}
+        <NowPlaying song={song} tr={tr} lyrics={lyrics} q={q} preparing={!!preparing}
           onClose={() => setFull(false)} onQueue={() => setDrawer(true)} onSong={onSong}
           open={p => { setFull(false); open(p) }} />
       )}

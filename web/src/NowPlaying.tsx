@@ -3,14 +3,14 @@ import { api, fmtTime, type Lyrics, type Song } from './api'
 import { t } from './i18n'
 import * as I from './icons'
 import LyricsView from './Lyrics'
-import { ModeButtons, type Transport } from './Modes'
+import { AutoplaySwitch, LuckyButton, ModeButtons, type Transport } from './Modes'
 import { albumPage, artistPage, type Page } from './Pages'
 import type { Queue } from './queue'
 import { leadArtist } from './text'
 
 /** Full screen: the album cover as a spinning record, and the lyrics. */
-export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, onClose, onQueue, onSong, open }: {
-  song: Song; tr: Transport; lyrics: Lyrics | null; q: Queue; smartBusy: boolean; preparing: boolean
+export default function NowPlaying({ song, tr, lyrics, q, preparing, onClose, onQueue, onSong, open }: {
+  song: Song; tr: Transport; lyrics: Lyrics | null; q: Queue; preparing: boolean
   onClose: () => void; onQueue: () => void; onSong: (s: Song) => void; open: (p: Page) => void
 }) {
   useEffect(() => {
@@ -78,8 +78,8 @@ export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, 
           <ModeButtons q={q} only="repeat" />
         </div>
         <div className="full-modes">
-          <ModeButtons q={q} only="smart" busy={smartBusy} />
-          <span className="muted small">{t(q.smart ? 'smartOn' : 'smartOff')}</span>
+          <LuckyButton tr={tr} />
+          <AutoplaySwitch q={q} />
         </div>
       </div>
     </div>

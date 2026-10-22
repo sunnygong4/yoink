@@ -531,3 +531,70 @@ tr.in-album .c-name { padding-left: 46px; }
   .flow-item.right { margin-left: -52px; }
   .flow-item.center { margin: 0 28px; }
 }
+
+/* ---------- album page: iTunes 11 (the cover's colour, a numbered list beside the cover) ---------- */
+.ialbum {
+  min-height: 100%; display: flex; gap: 32px; align-items: flex-start; padding: 32px 36px 40px;
+  background: var(--ia-bg); color: var(--ia-fg); transition: background .4s;
+}
+.ia-cover { flex: none; width: min(300px, 34%); position: sticky; top: 24px; }
+.ia-cover img, .ia-blank { width: 100%; aspect-ratio: 1; object-fit: cover; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.ia-blank { display: flex; align-items: center; justify-content: center; font-size: 64px; background: rgba(0, 0, 0, .2); }
+.ia-main { flex: 1; min-width: 0; }
+.ialbum h1 { font-size: 26px; font-weight: normal; letter-spacing: -.01em; color: var(--ia-fg); text-shadow: none; }
+.ia-meta { color: var(--ia-fg2); margin-top: 4px; font-size: 13px; }
+.ia-meta a, .ialbum .ia-link { color: var(--ia-fg); }
+.ia-meta a:hover { text-decoration: underline; }
+.ia-buttons { margin: 14px 0 18px; }
+.ialbum .ia-buttons button { background: rgba(255, 255, 255, .18); border: 1px solid var(--ia-fg2); color: var(--ia-fg); text-shadow: none; box-shadow: none; border-radius: 11px; }
+.on-light .ia-buttons button { background: rgba(0, 0, 0, .06); }
+.ia-tracks { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--ia-fg2); }
+.ia-track { display: grid; grid-template-columns: 30px minmax(0, 1fr) 52px auto; align-items: center; gap: 8px; min-height: 26px; padding: 2px 4px; border-bottom: 1px solid rgba(127, 127, 127, .22); }
+.ia-track:hover { background: rgba(255, 255, 255, .1); }
+.on-light .ia-track:hover { background: rgba(0, 0, 0, .05); }
+.ia-track:not(.have) .ia-name { color: var(--ia-fg2); }
+.ia-track.now .ia-name { font-weight: bold; color: var(--ia-fg); }
+.ia-no { text-align: right; color: var(--ia-fg2); font-variant-numeric: tabular-nums; font-size: 11px; }
+.ia-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ia-name em { font-style: normal; color: var(--ia-fg2); }
+.ia-status .status { display: inline; margin-left: 8px; color: var(--ia-fg2); }
+.ia-time { text-align: right; color: var(--ia-fg2); font-variant-numeric: tabular-nums; font-size: 11px; }
+.ia-act { display: flex; gap: 2px; justify-content: flex-end; min-width: 60px; }
+.ialbum .ia-link { height: 18px; padding: 0 6px; border: none; background: none; box-shadow: none; text-shadow: none; font-size: 11px; opacity: .55; }
+.ia-track:hover .ia-link { opacity: 1; }
+.ialbum .ia-link:hover:not(:disabled) { background: rgba(127, 127, 127, .25); }
+.ia-disc { padding: 12px 4px 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; color: var(--ia-fg2); }
+.ia-picker { padding: 6px 0; color: #222; }
+.ia-picker .picker { margin: 0; }
+.ia-notes { margin-top: 22px; max-width: 680px; color: var(--ia-fg2); line-height: 1.6; }
+.ia-notes .clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.ia-copy { margin-top: 18px; font-size: 10px; color: var(--ia-fg2); }
+@media (max-width: 760px) {
+  .ialbum { flex-direction: column; padding: 20px 16px 30px; gap: 18px; }
+  .ia-cover { position: static; width: 70%; margin: 0 auto; }
+  .ia-track { min-height: 40px; }
+  .ia-act .ia-link { opacity: 1; }
+}
+
+/* the queue opens over the full-screen view too */
+.drawer-backdrop { z-index: 60; }
+.drawer { z-index: 61; }
+
+/* autoplay switch (iOS-style) and the history list */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch .track { width: 38px; height: 22px; border-radius: 11px; background: linear-gradient(#bdbdbd, #d9d9d9); border: 1px solid #8a8a8a; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .35); position: relative; transition: background .2s; }
+.switch input:checked + .track { background: linear-gradient(#2f7de1, #5aa3f4); border-color: #2a5ea6; }
+.switch .knob { position: absolute; top: 1px; left: 1px; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, #fff, #e3e3e3 50%, #bdbdbd); box-shadow: 0 1px 2px rgba(0, 0, 0, .4); transition: left .2s; }
+.switch input:checked + .track .knob { left: 17px; }
+.switch-label { font-size: 11px; }
+.full .switch-label { color: #ddd; }
+.lucky:not(:disabled) { color: #8a5cd6; }
+.full .lucky:not(:disabled) { color: #c7b3ff; }
+.listbar-title { font-size: 12px; }
+.history .c-played { width: 130px; color: var(--grey); font-variant-numeric: tabular-nums; }
+.tag.smart { color: #7a4fd0; border-color: #c7b3ff; background: #f5f0ff; }
+tr.sel .tag.smart, .radio-row .tag.smart { margin-left: 6px; }
+
+/* opened from full screen: the queue runs the whole height */
+body.no-scroll .drawer { top: 0; bottom: 0; }

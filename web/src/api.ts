@@ -76,6 +76,21 @@ export type Album = {
   slug: string
 }
 
+export type Play = {
+  song_id: string
+  played_at: number
+  radio: boolean       // smart play brought it
+  title: string
+  artist: string
+  album: string | null
+  thumbnail: string | null
+  source: 'youtube' | 'bilibili' | 'local' | null
+  url: string | null
+  in_library: boolean
+  available: boolean   // still downloaded (smart-play songs nobody kept are deleted after a while)
+  song: Song | null
+}
+
 export type Lyrics = { lines: { t: number; text: string; tr?: string }[]; offset: number }
 
 export class ApiError extends Error {
@@ -125,7 +140,9 @@ export const api = {
   add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
   remove: (id: string) => fetch(`/api/songs/${id}`, { method: 'DELETE' }),
-  radio: (seed: string, exclude: string[]) => call<Song>('/api/radio', { seed, exclude }),
+  radio: (seed: string | null, exclude: string[]) => call<Song>('/api/radio', { seed, exclude }),
+  played: (id: string) => call('/api/plays', { song_id: id }),
+  history: () => call<Play[]>('/api/plays'),
   keep: (id: string) => call<Song>(`/api/songs/${id}/keep`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,
