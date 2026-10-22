@@ -192,3 +192,7 @@
 [data-theme=yoinker] .switch .knob { background: #fff; }
 [data-theme=yoinker] .tag.smart { color: #c7b3ff; border-color: #4b3f7a; background: none; }
 [data-theme=yoinker] .lucky:not(:disabled) { color: #c7b3ff; }
+
+[data-theme=yoinker] .device-summary, [data-theme=yoinker] .capacity { background: none; border-color: var(--line); }
+[data-theme=yoinker] .sync-status { background: #2a2a1a; border-color: #5a5a2a; }
+[data-theme=yoinker] .sync-status.done { background: #17261b; border-color: #2f5a3b; }

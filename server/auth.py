@@ -44,11 +44,33 @@ def end_session(req: Request, resp: Response):
 
 
 def current_user(req: Request) -> dict:
+    """The browser's session cookie, or a device's token (Authorization: Bearer ...) for the iPod extension."""
     row = conn().execute("select u.* from sessions s join users u on u.id = s.user_id where s.token = ?",
                          (req.cookies.get(COOKIE, ""),)).fetchone()
+    if not row and (bearer := req.headers.get("authorization", "")).lower().startswith("bearer "):
+        token = bearer[7:].strip()
+        row = conn().execute("select u.* from devices d join users u on u.id = d.user_id where d.token = ?", (token,)).fetchone()
+        if row:
+            conn().execute("update devices set last_seen = ? where token = ?", (time.time(), token))
     if not row:
         raise HTTPException(401, tr("Please log in", "请先登录"))
     return public(row)
+
+
+def add_device(user: dict, name: str) -> dict:
+    token = secrets.token_urlsafe(32)
+    did = conn().execute("insert into devices (user_id, name, token, created) values (?, ?, ?, ?)",
+                         (user["id"], name.strip()[:40] or "iPod", token, time.time())).lastrowid
+    return {"id": did, "name": name, "token": token}
+
+
+def devices(user: dict) -> list[dict]:
+    return [{"id": r["id"], "name": r["name"], "created": r["created"], "last_seen": r["last_seen"]}
+            for r in conn().execute("select * from devices where user_id = ? order by created", (user["id"],))]
+
+
+def remove_device(user: dict, did: int):
+    conn().execute("delete from devices where id = ? and user_id = ?", (did, user["id"]))
 
 
 def register(name: str, pw: str, invite: str | None) -> dict:

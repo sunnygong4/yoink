@@ -46,6 +46,15 @@ create table if not exists plays (
     title text, artist text, album text, thumbnail text, source text, url text
 );
 create index if not exists plays_by_user on plays(user_id, played_at);
+-- devices that carry music offline (the iPod browser extension); each has its own token
+create table if not exists devices (
+    id integer primary key,
+    user_id integer not null references users(id),
+    name text not null,
+    token text not null unique,
+    created real not null,
+    last_seen real
+);
 create table if not exists sessions (
     token text primary key,
     user_id integer not null references users(id),

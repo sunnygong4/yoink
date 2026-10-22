@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Yoinker iPod",
+  "version": "1.0.0",
+  "description": "An iPod classic for your Yoinker library: sync songs from music.sunnygong.com and play them anywhere, even offline.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Yoinker iPod",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["storage", "unlimitedStorage", "offscreen"],
+  "host_permissions": ["https://music.sunnygong.com/*", "http://127.0.0.1:8100/*", "http://localhost:8100/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://music.sunnygong.com/*", "http://127.0.0.1:8100/*", "http://localhost:8100/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

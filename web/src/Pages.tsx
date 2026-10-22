@@ -13,6 +13,7 @@ export type Page =
   | { kind: 'library' }
   | { kind: 'search' }
   | { kind: 'history' }
+  | { kind: 'device' }
   | { kind: 'artist'; key: string }   // slug or name
   | { kind: 'album'; key: string }    // "<artist>/<album>": slugs, or names (each part URL-encoded)
 
@@ -25,6 +26,7 @@ export function urlFor(p: Page): string {
     case 'library': return '/'
     case 'search': return '/find'
     case 'history': return '/history'
+    case 'device': return '/ipod'
     case 'artist': return `/artist/${encodeURIComponent(p.key)}`
     case 'album': return `/album/${p.key}`
   }
@@ -34,6 +36,7 @@ export function pageFromUrl(): Page {
   const [kind, a, b] = location.pathname.split('/').filter(Boolean)
   if (kind === 'find') return { kind: 'search' }
   if (kind === 'history') return { kind: 'history' }
+  if (kind === 'ipod') return { kind: 'device' }
   if (kind === 'artist' && a) return { kind: 'artist', key: decodeURIComponent(a) }
   if (kind === 'album' && a && b) return { kind: 'album', key: `${a}/${b}` }
   return { kind: 'library' }

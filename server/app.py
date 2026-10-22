@@ -79,6 +79,27 @@ def logout(req: Request, resp: Response):
     return {"ok": True}
 
 
+class DeviceBody(BaseModel):
+    name: str = "iPod"
+
+
+@app.post("/api/devices")
+def add_device(body: DeviceBody, user=Depends(auth.current_user)):
+    """Pair an iPod (the browser extension): it gets its own token to fetch music with."""
+    return auth.add_device(user, body.name)
+
+
+@app.get("/api/devices")
+def list_devices(user=Depends(auth.current_user)):
+    return auth.devices(user)
+
+
+@app.delete("/api/devices/{did}")
+def remove_device(did: int, user=Depends(auth.current_user)):
+    auth.remove_device(user, did)
+    return {"ok": True}
+
+
 @app.post("/api/invites")
 def invite(user=Depends(auth.current_user)):
     return {"code": auth.create_invite(user["id"])}

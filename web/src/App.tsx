@@ -3,10 +3,12 @@ import { api, fmtTime, type CatalogSong, type Song, type User } from './api'
 import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
+import DevicePage, { IPodPicture } from './Device'
 import Import from './Import'
 import Login from './Login'
 import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, urlFor } from './Pages'
 import Player from './Player'
+import { useIPod } from './ipod'
 import { useQueue } from './queue'
 import { type Actions, CatalogRow, SongStatus } from './Rows'
 import { flat, leadArtist } from './text'
@@ -41,6 +43,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [inviteLink, setInviteLink] = useState('')
   const [importing, setImporting] = useState(false)
   const q = useQueue()
+  const ipod = useIPod()
   const content = useRef<HTMLElement>(null)
   useEffect(() => { content.current?.scrollTo(0, 0) }, [page])
 
@@ -102,6 +105,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <I.Search size={15} /> <span>{t('find')}</span>
           </button>
           <button onClick={() => setImporting(true)}><I.Upload size={15} /> <span>{t('importBtn')}</span></button>
+          <h4>{t('devicesHeading')}</h4>
+          <button className={page.kind === 'device' ? 'on' : ''} onClick={() => go({ kind: 'device' })}>
+            <IPodPicture small /> <span>{ipod.status?.paired ? ipod.status.name : 'iPod'}</span>
+            {ipod.status?.paired && <em>{ipod.status.songs.length}</em>}
+          </button>
           <h4>{user.name}</h4>
           <button className={page.kind === 'history' ? 'on' : ''} onClick={() => go({ kind: 'history' })}>
             <span className="glyph">◷</span> <span>{t('history')}</span>
@@ -132,6 +140,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search byId={byId} currentId={q.current} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
+          {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
           {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} {...common} />}
           {page.kind === 'album' && <AlbumPage key={page.key} pageKey={page.key} {...common} />}
         </main>

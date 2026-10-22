@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Yoinker iPod</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="ipod" id="ipod">
+    <div class="screen">
+      <div class="bar">
+        <span class="state" id="state"></span>
+        <span class="title" id="title">iPod</span>
+        <span class="battery"><i></i></span>
+      </div>
+      <div class="view" id="view"></div>
+    </div>
+    <div class="wheel" id="wheel">
+      <span class="label menu">MENU</span>
+      <span class="label prev">&#9198;&#xFE0E;</span>
+      <span class="label next">&#9197;&#xFE0E;</span>
+      <span class="label play">&#9199;&#xFE0E;</span>
+      <button class="center" id="center" aria-label="Select"></button>
+    </div>
+  </div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

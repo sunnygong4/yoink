@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f7f9"/>
+      <stop offset=".5" stop-color="#d4d7db"/>
+      <stop offset="1" stop-color="#b9bdc3"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fb2ee"/>
+      <stop offset="1" stop-color="#2d66c2"/>
+    </linearGradient>
+    <radialGradient id="wheel" cx="50%" cy="38%" r="60%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dcdcdc"/>
+    </radialGradient>
+  </defs>
+  <rect x="26" y="4" width="76" height="120" rx="14" fill="url(#body)" stroke="#8d9299" stroke-width="2"/>
+  <rect x="34" y="12" width="60" height="45" rx="3" fill="url(#screen)" stroke="#1d1d1d" stroke-width="2"/>
+  <rect x="38" y="19" width="52" height="6" rx="1" fill="#fff" opacity=".9"/>
+  <rect x="38" y="29" width="40" height="4" rx="1" fill="#fff" opacity=".6"/>
+  <rect x="38" y="37" width="46" height="4" rx="1" fill="#fff" opacity=".6"/>
+  <rect x="38" y="45" width="34" height="4" rx="1" fill="#fff" opacity=".6"/>
+  <circle cx="64" cy="91" r="25" fill="url(#wheel)" stroke="#a9adb3" stroke-width="1.5"/>
+  <circle cx="64" cy="91" r="9.5" fill="url(#body)" stroke="#a9adb3" stroke-width="1.2"/>
+</svg>
