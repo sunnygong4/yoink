@@ -245,6 +245,8 @@ def radio(doc: dict) -> list[tuple[dict, dict]]:
     for t in (YTMusic().get_watch_playlist(videoId=vid, limit=25, radio=True).get("tracks") or [])[1:]:   # [0] is the seed
         if not t.get("videoId") or not t.get("title"):
             continue
+        if t.get("videoType") == "MUSIC_VIDEO_TYPE_UGC":   # fan uploads ("… [Tradução/Legendado]"): not the record
+            continue
         artists = [a["name"] for a in t.get("artists") or [] if a.get("name")]
         duration = _seconds(t.get("length"))
         thumbs = t.get("thumbnail") or []
