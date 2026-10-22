@@ -1,0 +1,8 @@
+# shared song store (same package the karaoke site uses): installed from this repo
+-e ../songstore
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+httpx==0.28.1
+yt-dlp==2026.8.19
+yt-dlp-ejs==0.8.0
+deno==2.9.7

@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+pydantic-settings
+alembic
+python-jose[cryptography]
+bcrypt
+httpx
+python-multipart
+yt-dlp
+musicbrainzngs
+mutagen
+requests
+psycopg[binary]

@@ -19,8 +19,20 @@ obj/
 .dotnet-cli-home/
 .nuget/
 backend/venv/
+backend/.venv/
 backend/media/
 backend/__pycache__/
 client-web/node_modules/
 client-web/dist/
-PhotographyWebsiteChat/node_modules/
+
+# Unrelated / stray files
+PhotographyWebsiteChat/
+resume.md
+lopglog.html
+log_*.md
+
+# Yoinker (new): runtime data and builds
+data/
+server/.venv/
+web/dist/
+*.egg-info/

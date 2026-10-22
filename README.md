@@ -1,107 +1,40 @@
-Yoinker is now a website-first personal media platform.
+# Yoinker
 
-- `backend/` hosts the authenticated FastAPI API, stream endpoints, playlist sharing, radio playlist feeds, and the background download worker.
-- `client-web/` is the main browser experience for phones and laptops: queue jobs, stream your library, manage playlists, and open shared playlist pages.
-- `yoinker.py` remains the desktop companion for remote job submission and auto-pulling files to a local folder.
-- `yoinker_core/` contains the shared yt-dlp and ffmpeg download pipeline used by both the worker and the desktop app.
+私人共享歌库：搜歌 → 服务器下载音频 → 大家在网页里听。邀请制，歌库所有人共用、不公开。
+和 K 歌站（karaoke.sunnygong.com）共用同一个歌库：K 歌站下过的歌这里直接能听，这里有的歌拿去唱不用再下载。
 
-## What It Does
+老的 yoinker（桌面版、Postgres 后端、client-web）都在 `legacy/`，不再维护。
 
-1. A user signs into the web app or desktop app.
-2. They submit a YouTube or Bilibili URL to the API.
-3. The worker downloads and finalizes media on the server.
-4. Finished audio and video land in the user's private library.
-5. The browser can stream files directly from the server.
-6. Users can build playlists, share playlist pages, and expose a simple HLS radio feed from a playlist.
-
-## Local Development
-
-### Backend API
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+## 结构
+```
+songstore/   共享歌库（Python 包，K 歌站也装它）：songs.db 目录 + library/<歌曲id>/ 文件夹
+             keys.py（同一首歌的识别）、identify.py（从网易云 / LRCLIB 找真名和歌词）
+server/      FastAPI：app.py（接口）、library.py（下载 / 收编 K 歌站的歌）、auth.py（邀请制账号）、search.py
+web/         React + Vite + TypeScript 网页
 ```
 
-### Backend Worker
+### 共享歌库怎么分工
+- 每首歌一条记录（JSON），字段两边都能读；Yoinker 自己的字段都带 `music_` 前缀，`status/stage/progress` 归 K 歌站。
+- 文件：Yoinker 用 `audio.m4a`（AAC，iPhone 也能放）；K 歌站用 `video.mp4`、伴奏、人声；`lyrics.json` 两边共用。
+- K 歌站下好的歌：Yoinker 每 5 分钟扫一次，用 ffmpeg 从视频里抽音频（直接拷贝音轨，一秒钟）。
+- Yoinker 有音频的歌被点唱：K 歌站直接拿音频去人声，不下载（没有 MV）。
+- 应用会 "hold" 自己要用的歌；K 歌站清理 30 天没人唱的歌时，Yoinker 在用的只删视频和伴奏。
 
-Run this in a second terminal:
-
+## 本地运行
 ```bash
-cd backend
-source .venv/bin/activate
-python run_worker.py
+python -m venv server/.venv
+server/.venv/Scripts/pip install -r server/requirements.txt     # Linux: server/.venv/bin/pip
+cd web && npm install && npm run build && cd ..
+cd server && SONGSTORE_ROOT=<歌库目录> .venv/Scripts/python -m uvicorn app:app --port 8100
 ```
+打开 http://127.0.0.1:8100 。第一个注册的人是管理员，不需要邀请码；之后在页面右上角"邀请"生成一次性邀请链接。
+改前端时可以 `cd web && npm run dev`（5174 端口，`/api` 代理到 8100）。
 
-### Web Client
+需要 ffmpeg / ffprobe 在 PATH 里。
 
-```bash
-cd client-web
-npm install
-cp .env.example .env
-npm run dev
-```
-
-Set `VITE_API_BASE_URL` if your API is not `http://localhost:8000`.
-
-### FFmpeg
-
-- Production audio jobs should have FFmpeg installed so the server can produce MP3 output.
-- Local development can still fall back to source audio containers such as `.m4a` if FFmpeg is missing.
-- On Ubuntu: `sudo apt update && sudo apt install -y ffmpeg`
-
-## Core HTTP Surface
-
-- `POST /api/v1/auth/register`
-- `POST /api/v1/auth/token`
-- `GET /api/v1/auth/me`
-- `POST /api/v1/jobs`
-- `GET /api/v1/jobs`
-- `GET /api/v1/library`
-- `GET /api/v1/library/{media_id}/stream`
-- `GET /api/v1/library/{media_id}/download`
-- `POST /api/v1/playlists`
-- `GET /api/v1/playlists`
-- `POST /api/v1/playlists/{id}/share`
-- `GET /api/v1/shared/playlists/{share_token}`
-- `POST /api/v1/radio`
-- `GET /radio/{slug}/index.m3u8`
-
-## Production on Ubuntu
-
-The repo now includes:
-
-- `docker-compose.yml`
-- `backend/Dockerfile`
-- `client-web/Dockerfile`
-- `deploy/Caddyfile`
-- `.env.production.example`
-
-Typical production flow:
-
-```bash
-cp .env.production.example .env
-docker compose build
-docker compose up -d
-```
-
-The compose stack runs `postgres`, `api`, `worker`, `web`, and `caddy`. Caddy terminates HTTPS and routes `/api/*` and `/radio/*` to the API while serving the browser app for everything else.
-
-## Tests
-
-Backend:
-
-```bash
-python -m unittest discover -s backend/tests
-```
-
-Web build:
-
-```bash
-cd client-web
-npm run build
-```
+## 上线（sunnyserver3，还没部署）
+1. 代码放到 `~/yoink`，按上面装好 venv、构建 `web/`。
+2. 两边用同一个歌库：把 `~/karaoke/library` 移到 `~/songstore/library`，K 歌站的启动环境里加 `SONGSTORE_ROOT=~/songstore`，并在它的 venv 里 `pip install -e ~/yoink/songstore`。
+3. `server/run.sh` 启动（默认 `SONGSTORE_ROOT=~/songstore`），像 K 歌站一样用 supervise 脚本常驻。
+4. Cloudflare 隧道加一条 ingress：`music.sunnygong.com → http://127.0.0.1:8100`。
+5. 以后 `yoinker.sunnygong.com` 可以做成 exe / iOS app 用的 API（同一个 server，加 token 登录就行）。
