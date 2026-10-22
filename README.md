@@ -32,9 +32,30 @@ cd server && SONGSTORE_ROOT=<歌库目录> .venv/Scripts/python -m uvicorn app:a
 
 需要 ffmpeg / ffprobe 在 PATH 里。
 
-## 上线（sunnyserver3，还没部署）
-1. 代码放到 `~/yoink`，按上面装好 venv、构建 `web/`。
-2. 两边用同一个歌库：把 `~/karaoke/library` 移到 `~/songstore/library`，K 歌站的启动环境里加 `SONGSTORE_ROOT=~/songstore`，并在它的 venv 里 `pip install -e ~/yoink/songstore`。
-3. `server/run.sh` 启动（默认 `SONGSTORE_ROOT=~/songstore`），像 K 歌站一样用 supervise 脚本常驻。
-4. Cloudflare 隧道加一条 ingress：`music.sunnygong.com → http://127.0.0.1:8100`。
-5. 以后 `yoinker.sunnygong.com` 可以做成 exe / iOS app 用的 API（同一个 server，加 token 登录就行）。
+## 线上（sunnyserver3）
+https://music.sunnygong.com → K 歌站的 Cloudflare 隧道（`~/karaoke/tunnel.yml` 里的第二条 ingress）→ 127.0.0.1:8100
+
+| 路径 | 作用 |
+|---|---|
+| `~/yoink/` | 代码：`songstore/`、`server/`（venv 在 `server/.venv`，Python 3.11，uv 装的）、`web/dist/` |
+| `~/songstore/` | 共享歌库：`songs.db` + `library/`（原来的 `~/karaoke/library` 搬过来的）。K 歌站也用它 |
+| `~/yoinker-data/` | 账号、邀请码、登录状态（`yoinker.db`） |
+| `~/yoink/logs/` | `server.log`、`supervisor.log` |
+
+- `server/supervise.sh`：cron 每分钟 + 开机各跑一次，挂了就拉起来（crontab 里带 `# yoinker-supervisor` 标记）。
+- K 歌站的 `supervise.sh` 里设了 `SONGSTORE_ROOT=~/songstore`，它的 venv 里装了 `~/yoink/songstore`（可编辑安装，部署 Yoinker 时一起更新）。
+- 第一次迁移前的备份：`~/karaoke-backup-20261021-2042/`（旧 meta.json、rooms、旧后端代码）。
+
+### 改了代码之后
+```bash
+./deploy.sh --build     # 构建网页、上传 songstore/server/web，装依赖，重启（只改后端可以不加 --build）
+```
+songstore 改了的话，K 歌站也要重启才会用上：`ssh sunnyserver3 '~/karaoke/supervise.sh restart'`。
+
+### 常用命令
+```bash
+ssh sunnyserver3 'tail -f ~/yoink/logs/server.log'                     # 看日志
+ssh sunnyserver3 '~/yoink/server/.venv/bin/python -m songstore ~/songstore | head'   # 看歌库
+```
+
+以后 `yoinker.sunnygong.com` 可以做成 exe / iOS app 用的 API（同一个 server，加 token 登录就行）。
