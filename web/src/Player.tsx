@@ -120,56 +120,56 @@ export default function Player({ q, byId, onSong }: {
         onDurationChange={e => setDuration(e.currentTarget.duration)}
         onEnded={ended} />
 
-      <footer className="player">
-        <div className="progress-thin" style={{ width: `${duration ? (100 * time) / duration : 0}%` }} />
-        <div className="np" onClick={() => song && setFull(true)} role="button" title={t('fullScreen')}>
-          {song?.thumbnail ? <img className="cover" src={song.thumbnail} alt="" /> : <div className="cover blank"><I.Library /></div>}
-          <div className="np-text">
-            <div className="title">{song ? song.title : t('notPlaying')}</div>
-            <div className="sub">{preparing ? t('preparing') : song?.artist}</div>
-          </div>
-          {song?.radio && (
-            <button className="ib keep" title={t('keep')}
-              onClick={e => { e.stopPropagation(); api.keep(song.id).then(onSong) }}><I.Heart size={18} /></button>
-          )}
-        </div>
-
+      <header className="toolbar">
         <div className="transport">
-          <div className="buttons">
-            <ModeButtons q={q} only="shuffle" />
-            <button className="ib" onClick={prev} disabled={!song} title={t('prev')}><I.Prev /></button>
-            <button className="ib play" onClick={toggle} disabled={!ready} title={playing ? t('pause') : t('play')}>
-              {playing ? <I.Pause size={22} /> : <I.Play size={22} />}
-            </button>
-            <button className="ib" onClick={next} disabled={!song || (isLast && q.repeat !== 'all')} title={t('next')}><I.Next /></button>
-            <ModeButtons q={q} only="repeat" />
-          </div>
-          <div className="seek">
-            <span>{fmtTime(time)}</span>
-            <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(time, duration || 0)}
-              disabled={!ready} onChange={e => seek(Number(e.target.value))}
-              style={{ '--p': `${duration ? (100 * time) / duration : 0}%` } as React.CSSProperties} />
-            <span>{fmtTime(duration)}</span>
+          <button className="round" onClick={prev} disabled={!song} title={t('prev')}><I.Prev size={16} /></button>
+          <button className="round big" onClick={toggle} disabled={!ready} title={playing ? t('pause') : t('play')}>
+            {playing ? <I.Pause size={20} /> : <I.Play size={20} />}
+          </button>
+          <button className="round" onClick={next} disabled={!song || (isLast && q.repeat !== 'all')} title={t('next')}><I.Next size={16} /></button>
+        </div>
+        <div className="volume">
+          <button className="flat" onClick={() => setVolume(volume ? 0 : 1)} title={t('volume')}>
+            {volume ? <I.Volume size={14} /> : <I.Mute size={14} />}
+          </button>
+          <input type="range" min={0} max={1} step={0.01} value={volume} onChange={e => setVolume(Number(e.target.value))}
+            style={{ '--p': `${volume * 100}%` } as React.CSSProperties} aria-label={t('volume')} />
+        </div>
+
+        {/* the iTunes "LCD": what's playing, and where in the song; the cover opens the full-screen view */}
+        <div className="lcd">
+          <button className="lcd-art" onClick={() => song && setFull(true)} disabled={!song} title={t('fullScreen')}>
+            {song?.thumbnail ? <img src={song.thumbnail} alt="" onError={e => { e.currentTarget.style.visibility = 'hidden' }} /> : <span className="apple-note">♫</span>}
+          </button>
+          <div className="lcd-body">
+            {song ? <>
+              <div className="lcd-title">
+                {song.title}
+                {song.radio && (
+                  <button className="lcd-keep" title={t('keep')} onClick={() => api.keep(song.id).then(onSong)}>
+                    <I.Heart size={11} />
+                  </button>
+                )}
+              </div>
+              <div className="lcd-sub">{preparing ? t('preparing') : [song.artist, song.album].filter(Boolean).join(' — ')}</div>
+              <div className="lcd-seek">
+                <span>{fmtTime(time)}</span>
+                <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(time, duration || 0)}
+                  disabled={!ready} onChange={e => seek(Number(e.target.value))}
+                  style={{ '--p': `${duration ? (100 * time) / duration : 0}%` } as React.CSSProperties} />
+                <span>-{fmtTime(Math.max(0, duration - time))}</span>
+              </div>
+            </> : <div className="lcd-idle"><span className="apple-note">♫</span> Yoinker</div>}
           </div>
         </div>
 
-        <div className="extras">
-          <ModeButtons q={q} only="smart" busy={smartBusy} />
-          <button className="ib" onClick={() => song && setFull(true)} disabled={!song} title={t('fullScreen')}><I.Mic /></button>
-          <button className={'ib' + (drawer ? ' on' : '')} onClick={() => setDrawer(!drawer)} title={t('queue')}><I.QueueIcon /></button>
-          <div className="volume">
-            <button className="ib" onClick={() => setVolume(volume ? 0 : 1)} title={t('volume')}>
-              {volume ? <I.Volume /> : <I.Mute />}
-            </button>
-            <input type="range" min={0} max={1} step={0.01} value={volume} onChange={e => setVolume(Number(e.target.value))}
-              style={{ '--p': `${volume * 100}%` } as React.CSSProperties} aria-label={t('volume')} />
-          </div>
+        <div className="modes">
+          <ModeButtons q={q} busy={smartBusy} />
+          <button className={'square' + (drawer ? ' pressed' : '')} onClick={() => setDrawer(!drawer)} title={t('queue')}>
+            <I.QueueIcon size={15} />
+          </button>
         </div>
-        <button className="ib play mobile-only" onClick={e => { e.stopPropagation(); toggle() }} disabled={!ready}>
-          {playing ? <I.Pause size={22} /> : <I.Play size={22} />}
-        </button>
-        <button className="ib mobile-only" onClick={() => setDrawer(true)}><I.QueueIcon /></button>
-      </footer>
+      </header>
 
       <QueueDrawer open={drawer} onClose={() => setDrawer(false)} q={q} byId={byId} onSong={onSong} smartBusy={smartBusy} />
       {full && song && (

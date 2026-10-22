@@ -21,7 +21,6 @@ export const Repeat = (p: P) => svg(<><path d="m17 2 4 4-4 4" /><path d="M3 11v-
 export const RepeatOne = (p: P) => svg(<><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /><path d="M11 10h1v4" /></>, p)
 export const Sparkle = (p: P) => svg(<><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" /><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z" /></>, p)
 export const QueueIcon = (p: P) => svg(<><path d="M3 6h13" /><path d="M3 12h13" /><path d="M3 18h8" /><path d="M17 15v6l4-3z" /></>, p)
-export const Mic = (p: P) => svg(<><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" /></>, p)
 export const Expand = (p: P) => svg(<><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" /></>, p)
 export const Close = (p: P) => svg(<><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>, p)
 export const Down = (p: P) => svg(<path d="m6 9 6 6 6-6" />, p)

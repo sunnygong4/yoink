@@ -34,7 +34,7 @@ export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, 
         <div className="turntable">
           <div className={'vinyl' + (tr.playing ? ' spinning' : '')}>
             <div className="grooves" />
-            {song.thumbnail ? <img className="label" src={song.thumbnail} alt="" /> : <div className="label blank" />}
+            {song.thumbnail ? <img className="label" src={song.thumbnail} alt="" onError={e => { e.currentTarget.style.visibility = 'hidden' }} /> : <div className="label blank" />}
             <div className="spindle" />
           </div>
           <svg className={'tonearm' + (tr.playing ? ' down' : '')} viewBox="0 0 100 300" aria-hidden="true">

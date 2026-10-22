@@ -33,15 +33,18 @@ export default function Import({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={t('importTitle')}>
-        <div className="modal-head">
+      <div className="modal window" role="dialog" aria-modal="true" aria-label={t('importTitle')}>
+        <div className="titlebar">
+          <span className="lights">
+            <button className="light close" onClick={onClose} title={t('close')} aria-label={t('close')} />
+            <i className="light" /><i className="light" />
+          </span>
           <h2>{t('importTitle')}</h2>
-          <button className="icon" onClick={onClose} title={t('close')}>✕</button>
         </div>
-        <div className="toolbar">
-          <button className={tab === 'file' ? 'active' : ''} onClick={() => setTab('file')}>{t('fromFile')}</button>
-          <button className={tab === 'link' ? 'active' : ''} onClick={() => setTab('link')}>{t('fromLink')}</button>
-        </div>
+        <nav className="seg">
+          <button className={tab === 'file' ? 'on' : ''} onClick={() => setTab('file')}>{t('fromFile')}</button>
+          <button className={tab === 'link' ? 'on' : ''} onClick={() => setTab('link')}>{t('fromLink')}</button>
+        </nav>
         {tab === 'file' ? <FileImport /> : <LinkImport />}
       </div>
     </div>

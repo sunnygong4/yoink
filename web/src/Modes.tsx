@@ -19,19 +19,19 @@ export function ModeButtons({ q, only, busy }: { q: Queue; only?: 'shuffle' | 'r
   return (
     <>
       {show('shuffle') && (
-        <button className={'ib mode' + (q.shuffle ? ' on' : '')} onClick={q.toggleShuffle} title={t('shuffleMode')}
-          aria-pressed={q.shuffle}><I.Shuffle size={18} /></button>
+        <button className={'square mode' + (q.shuffle ? ' pressed' : '')} onClick={q.toggleShuffle} title={t('shuffleMode')}
+          aria-pressed={q.shuffle}><I.Shuffle size={15} /></button>
       )}
       {show('repeat') && (
-        <button className={'ib mode' + (q.repeat !== 'off' ? ' on' : '')} onClick={q.cycleRepeat}
+        <button className={'square mode' + (q.repeat !== 'off' ? ' pressed' : '')} onClick={q.cycleRepeat}
           title={t(q.repeat === 'one' ? 'repeatOne' : q.repeat === 'all' ? 'repeatAll' : 'repeatOff')}>
-          {q.repeat === 'one' ? <I.RepeatOne size={18} /> : <I.Repeat size={18} />}
+          {q.repeat === 'one' ? <I.RepeatOne size={15} /> : <I.Repeat size={15} />}
         </button>
       )}
       {show('smart') && (
-        <button className={'ib mode' + (q.smart ? ' on' : '') + (busy ? ' busy' : '')} onClick={q.toggleSmart}
+        <button className={'square mode' + (q.smart ? ' pressed' : '') + (busy ? ' busy' : '')} onClick={q.toggleSmart}
           title={`${t(q.smart ? 'smartOn' : 'smartOff')} — ${t('smartHint')}`} aria-pressed={q.smart}>
-          <I.Sparkle size={18} />
+          <I.Sparkle size={15} />
         </button>
       )}
     </>

@@ -62,7 +62,7 @@ function QueueRow({ s, now, onPlay, onRemove, onKeep }: {
   return (
     <div className={'qrow' + (now ? ' now' : '')}>
       <button className="qmain" onClick={onPlay} disabled={!onPlay}>
-        {s.thumbnail ? <img src={s.thumbnail} alt="" loading="lazy" /> : <div className="blank" />}
+        {s.thumbnail ? <img src={s.thumbnail} alt="" loading="lazy" onError={e => { e.currentTarget.style.visibility = 'hidden' }} /> : <div className="blank" />}
         <span className="qtext">
           <b>{s.title}</b>
           <span>
