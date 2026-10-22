@@ -49,6 +49,31 @@ export type Source = {
   fit: number
 }
 
+export type ArtistAlbum = { title: string; artist: string; year: string; artwork: string | null; tracks: number | null; single: boolean }
+
+export type Artist = {
+  name: string
+  photo: string | null
+  logo: string | null
+  background: string | null
+  bio: string | null
+  genre: string | null
+  formed: string | null
+  albums: ArtistAlbum[]
+  top: CatalogSong[]
+}
+
+export type Album = {
+  title: string
+  artist: string
+  year: string
+  artwork: string | null
+  genre: string | null
+  copyright: string | null
+  description: string | null
+  tracks: (CatalogSong & { track: number | null; disc: number | null })[]
+}
+
 export type Lyrics = { lines: { t: number; text: string; tr?: string }[]; offset: number }
 
 export class ApiError extends Error {
@@ -83,6 +108,8 @@ export const api = {
   invite: () => call<{ code: string }>('/api/invites', {}),
   songs: () => call<Song[]>('/api/songs'),
   catalog: (q: string) => call<CatalogSong[]>(`/api/catalog?${new URLSearchParams({ q })}`),
+  artist: (name: string) => call<Artist>(`/api/artist?${new URLSearchParams({ name })}`),
+  album: (artist: string, title: string) => call<Album>(`/api/album?${new URLSearchParams({ artist, title })}`),
   quick: (song: CatalogSong) => call<Song>('/api/songs/quick', song),
   sources: (song: CatalogSong, where: string) => call<Source[]>(`/api/sources?where=${where}`, song),
   add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),

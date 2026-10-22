@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, fmtTime, type CatalogSong, type Song, type Source, type User } from './api'
-import { errorText, getLang, setLang, t } from './i18n'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api, fmtTime, type CatalogSong, type Song, type User } from './api'
+import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import Import from './Import'
 import Login from './Login'
+import { AlbumPage, ArtistPage, type Page } from './Pages'
 import Player from './Player'
 import { useQueue } from './queue'
+import { type Actions, CatalogRow, SongStatus } from './Rows'
+import { flat, leadArtist } from './text'
+import { getTheme, setTheme } from './theme'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -19,14 +23,17 @@ export default function App() {
   return <Main user={user} onLogout={() => api.logout().finally(() => setUser(null))} />
 }
 
-// Laid out like iTunes: the player across the top, a source list on the left, the songs in a striped list.
+// Laid out like iTunes: the player across the top, a source list on the left, the page on the right.
 function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [, rerender] = useState(getLang())
-  const [tab, setTab] = useState<'library' | 'search'>('library')
+  const [, rerender] = useState(0)
+  const [pages, setPages] = useState<Page[]>([{ kind: 'library' }])   // a stack: artist / album pages go "back"
   const [songs, setSongs] = useState<Song[]>([])
   const [inviteLink, setInviteLink] = useState('')
   const [importing, setImporting] = useState(false)
   const q = useQueue()
+  const page = pages[pages.length - 1]
+  const content = useRef<HTMLElement>(null)
+  useEffect(() => { content.current?.scrollTo(0, 0) }, [page])
 
   const refresh = useCallback(() => { api.songs().then(setSongs).catch(() => {}) }, [])
 
@@ -44,6 +51,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     setSongs(xs => xs.some(x => x.id === s.id) ? xs.map(x => (x.id === s.id ? s : x)) : [s, ...xs])
   }, [])
 
+  const open = useCallback((p: Page) => setPages(ps => [...ps, p]), [])
+  const go = (p: Page) => setPages([p])   // the source list: a fresh start
+  const back = () => setPages(ps => (ps.length > 1 ? ps.slice(0, -1) : ps))
+
   const byId = useMemo(() => new Map(songs.map(s => [s.id, s])), [songs])
   const library = useMemo(() => songs.filter(s => !s.radio), [songs])
   const ready = library.filter(s => s.status === 'ready')
@@ -55,57 +66,63 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
 
   const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue }
+  const common = { ...actions, byId, library, currentId: q.current, open }
 
   return (
     <div className="itunes">
-      <Player q={q} byId={byId} onSong={onSong} />
+      <Player q={q} byId={byId} onSong={onSong} open={open} />
       <div className="frame">
         <aside className="sourcelist">
           <h4>{t('libraryHeading')}</h4>
-          <button className={tab === 'library' ? 'on' : ''} onClick={() => setTab('library')}>
+          <button className={page.kind === 'library' ? 'on' : ''} onClick={() => go({ kind: 'library' })}>
             <I.Library size={15} /> <span>{t('library')}</span> <em>{library.length || ''}</em>
           </button>
           <h4>{t('storeHeading')}</h4>
-          <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>
+          <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>
             <I.Search size={15} /> <span>{t('find')}</span>
           </button>
           <button onClick={() => setImporting(true)}><I.Upload size={15} /> <span>{t('importBtn')}</span></button>
           <h4>{user.name}</h4>
           <button onClick={invite}><I.Plus size={15} /> <span>{t('invite')}</span></button>
-          <button onClick={() => { const l = getLang() === 'zh' ? 'en' : 'zh'; setLang(l); rerender(l) }}>
+          <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }}>
             <span className="glyph">文</span> <span>{t('language')}</span>
+          </button>
+          <button onClick={() => { setTheme(getTheme() === 'classic' ? 'yoinker' : 'classic'); rerender(n => n + 1) }}
+            title={t('themeHint')}>
+            <span className="glyph">◐</span> <span>{t('theme', { name: getTheme() === 'classic' ? 'Classic' : 'Yoinker' })}</span>
           </button>
           <button onClick={onLogout}><I.Close size={15} /> <span>{t('logout')}</span></button>
         </aside>
 
-        <main className="content">
+        <main className="content" ref={content}>
           {inviteLink && (
             <div className="notice">
               {t('inviteLink')}<input readOnly value={inviteLink} onFocus={e => e.target.select()} />
               <button onClick={() => setInviteLink('')}>{t('close')}</button>
             </div>
           )}
-          {tab === 'library'
-            ? <Library songs={library} currentId={q.current} onImport={() => setImporting(true)} {...actions} />
-            : <Search byId={byId} currentId={q.current} {...actions} />}
+          {pages.length > 1 && (
+            <div className="crumbs">
+              <button className="back" onClick={back}><I.Prev size={10} /> {t('back')}</button>
+            </div>
+          )}
+          {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} {...common} />}
+          {page.kind === 'search' && <Search byId={byId} currentId={q.current} {...actions} />}
+          {page.kind === 'artist' && <ArtistPage key={page.name} name={page.name} {...common} />}
+          {page.kind === 'album' && <AlbumPage key={page.artist + page.title} artist={page.artist} title={page.title} {...common} />}
         </main>
       </div>
       <footer className="statusbar">
         <nav className="seg mobile-tabs">
-          <button className={tab === 'library' ? 'on' : ''} onClick={() => setTab('library')}>{t('library')}</button>
-          <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>{t('find')}</button>
+          <button className={page.kind === 'library' ? 'on' : ''} onClick={() => go({ kind: 'library' })}>{t('library')}</button>
+          <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>{t('find')}</button>
+          <button onClick={() => { setTheme(getTheme() === 'classic' ? 'yoinker' : 'classic'); rerender(n => n + 1) }}>◐</button>
         </nav>
         <span className="status-text">{t('status', { n: ready.length, m: minutes })}</span>
       </footer>
       {importing && <Import onClose={() => setImporting(false)} />}
     </div>
   )
-}
-
-type Actions = {
-  play: (ids: string[], start?: number) => void
-  playNext: (id: string) => void
-  enqueue: (id: string) => void
 }
 
 function shuffle<T>(xs: T[]): T[] {
@@ -117,23 +134,160 @@ function shuffle<T>(xs: T[]): T[] {
   return a
 }
 
-function Library({ songs, currentId, play, playNext, enqueue, onImport }: Actions & {
-  songs: Song[]; currentId?: string; onImport: () => void
+// ---------- the library: songs or albums, sortable columns ----------
+
+type SortKey = 'added' | 'title' | 'time' | 'artist' | 'album' | 'by'
+type Sort = { key: SortKey; dir: 1 | -1 }
+const PREFS = 'yoinker.library'
+
+function loadPrefs(): { view: 'songs' | 'albums'; sort: Sort } {
+  try {
+    const p = JSON.parse(localStorage.getItem(PREFS) || '')
+    if (p.view && p.sort) return p
+  } catch { /* nothing saved */ }
+  return { view: 'songs', sort: { key: 'added', dir: -1 } }
+}
+
+type Group = { key: string; album: string; artist: string; cover: string | null; songs: Song[] }
+type Item = { kind: 'song'; song: Song } | { kind: 'album'; group: Group }
+
+/** Songs from the same album (two or more of them) become one album entry. */
+function groupAlbums(songs: Song[]): Item[] {
+  const groups = new Map<string, Song[]>()
+  for (const s of songs) {
+    if (!s.album) continue
+    const k = `${flat(s.album)}|${flat(leadArtist(s.artist))}`
+    groups.set(k, [...(groups.get(k) ?? []), s])
+  }
+  const done = new Set<string>()
+  const items: Item[] = []
+  for (const s of songs) {
+    const k = s.album ? `${flat(s.album)}|${flat(leadArtist(s.artist))}` : ''
+    const g = k ? groups.get(k)! : []
+    if (g.length < 2) { items.push({ kind: 'song', song: s }); continue }
+    if (done.has(k)) continue
+    done.add(k)
+    items.push({ kind: 'album', group: { key: k, album: s.album!, artist: leadArtist(s.artist), cover: s.thumbnail, songs: g } })
+  }
+  return items
+}
+
+function Library({ songs, currentId, open, onImport, play, playNext, enqueue }: Actions & {
+  songs: Song[]; currentId?: string; open: (p: Page) => void; onImport: () => void
 }) {
+  const [prefs, setPrefs] = useState(loadPrefs)
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  useEffect(() => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)) } catch { /* private mode */ } }, [prefs])
+
   const f = filter.trim().toLowerCase()
   const shown = f ? songs.filter(s => `${s.title} ${s.artist} ${s.album} ${s.added_by}`.toLowerCase().includes(f)) : songs
-  const shownReady = shown.filter(s => s.status === 'ready').map(s => s.id)
-  const playFrom = (id: string) => play(shownReady, Math.max(0, shownReady.indexOf(id)))
-  // phones have no double click: a tap plays
-  const touch = typeof matchMedia !== 'undefined' && matchMedia('(hover: none)').matches
+  const collator = useMemo(() => new Intl.Collator(getLang() === 'zh' ? 'zh' : 'en', { numeric: true, sensitivity: 'base' }), [])
+  const { key, dir } = prefs.sort
+
+  const value = (it: Item): string | number => {
+    const ss = it.kind === 'song' ? [it.song] : it.group.songs
+    const s = ss[0]
+    switch (key) {
+      case 'added': return Math.max(...ss.map(x => x.added_at || 0))
+      case 'title': return it.kind === 'album' ? it.group.album : s.title
+      case 'time': return ss.reduce((n, x) => n + (x.duration || 0), 0)
+      case 'artist': return s.artist
+      case 'album': return s.album || '￿'   // songs without an album last
+      case 'by': return s.added_by || ''
+    }
+  }
+  const items = (prefs.view === 'albums' ? groupAlbums(shown) : shown.map(song => ({ kind: 'song', song }) as Item))
+    .sort((a, b) => {
+      const va = value(a), vb = value(b)
+      const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : collator.compare(String(va), String(vb))
+      return c * dir
+    })
+  // the play order follows what's on screen
+  const order = items.flatMap(it => it.kind === 'song' ? [it.song] : it.group.songs).filter(s => s.status === 'ready').map(s => s.id)
+  const playFrom = (id: string) => play(order, Math.max(0, order.indexOf(id)))
+  const touch = typeof matchMedia !== 'undefined' && matchMedia('(hover: none)').matches   // phones: a tap plays
+
+  const sortBy = (k: SortKey) => setPrefs(p => ({ ...p, sort: { key: k, dir: p.sort.key === k ? (-p.sort.dir as 1 | -1) : (k === 'added' ? -1 : 1) } }))
+  const th = (k: SortKey, label: string, className?: string) => (
+    <th className={(className ?? '') + (key === k ? ' sorted' : '')} onClick={() => sortBy(k)}>
+      {label}{key === k && <span className="arrow">{dir === 1 ? '▲' : '▼'}</span>}
+    </th>
+  )
+  const toggle = (k: string) => setExpanded(e => { const n = new Set(e); if (n.has(k)) n.delete(k); else n.add(k); return n })
+
+  const songRow = (s: Song, inAlbum = false) => {
+    const ok = s.status === 'ready'
+    return (
+      <tr key={s.id} className={(s.id === selected ? 'sel' : '') + (ok ? '' : ' pending') + (inAlbum ? ' in-album' : '')}
+        onClick={() => { setSelected(s.id); if (touch && ok) playFrom(s.id) }}
+        onDoubleClick={() => ok && playFrom(s.id)}>
+        <td className="c-now">{s.id === currentId && <I.Volume size={13} />}</td>
+        <td className="c-name">
+          <span className="name">{s.title}</span>
+          <span className="sub">{s.artist}</span>
+          {!ok && <SongStatus song={s} />}
+        </td>
+        <td className="c-time">{fmtTime(s.duration)}</td>
+        <td className="c-artist">
+          <a onClick={e => { e.stopPropagation(); open({ kind: 'artist', name: leadArtist(s.artist) }) }}>{s.artist}</a>
+        </td>
+        <td className="c-album">
+          {s.album && <a onClick={e => { e.stopPropagation(); open({ kind: 'album', artist: s.artist, title: s.album! }) }}>{s.album}</a>}
+        </td>
+        <td className="c-by">{s.added_by}</td>
+        <td className="c-act">
+          {ok && <>
+            <button className="mini" onClick={e => { e.stopPropagation(); playNext(s.id) }} title={t('playNext')}><I.PlayNext size={13} /></button>
+            <button className="mini" onClick={e => { e.stopPropagation(); enqueue(s.id) }} title={t('addToQueue')}><I.Plus size={13} /></button>
+            <a className="mini" href={api.downloadUrl(s.id)} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
+          </>}
+        </td>
+      </tr>
+    )
+  }
+
+  const albumRow = (g: Group) => {
+    const ids = g.songs.filter(s => s.status === 'ready').map(s => s.id)
+    const isOpen = expanded.has(g.key)
+    const playing = g.songs.some(s => s.id === currentId)
+    return [
+      <tr key={g.key} className={'album-row' + (selected === g.key ? ' sel' : '')}
+        onClick={() => { setSelected(g.key); toggle(g.key) }} onDoubleClick={() => ids.length && play(ids)}>
+        <td className="c-now">{playing ? <I.Volume size={13} /> : <span className="caret">{isOpen ? '▾' : '▸'}</span>}</td>
+        <td className="c-name">
+          <span className="album-cell">
+            {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <span className="blank" />}
+            <span>
+              <a className="name" onClick={e => { e.stopPropagation(); open({ kind: 'album', artist: g.artist, title: g.album }) }}>{g.album}</a>
+              <span className="count">{t('nSongs', { n: g.songs.length })}</span>
+            </span>
+          </span>
+        </td>
+        <td className="c-time">{fmtTime(g.songs.reduce((n, s) => n + (s.duration || 0), 0))}</td>
+        <td className="c-artist">
+          <a onClick={e => { e.stopPropagation(); open({ kind: 'artist', name: g.artist }) }}>{g.artist}</a>
+        </td>
+        <td className="c-album" />
+        <td className="c-by" />
+        <td className="c-act">
+          <button className="mini" disabled={!ids.length} onClick={e => { e.stopPropagation(); play(ids) }} title={t('play')}><I.Play size={11} /></button>
+        </td>
+      </tr>,
+      ...(isOpen ? g.songs.map(s => songRow(s, true)) : []),
+    ]
+  }
 
   return (
     <>
       <div className="listbar">
-        <button onClick={() => play(shownReady)} disabled={!shownReady.length}><I.Play size={12} /> {t('playAll')}</button>
-        <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}><I.Shuffle size={12} /> {t('shuffle')}</button>
+        <button onClick={() => play(order)} disabled={!order.length}><I.Play size={12} /> {t('playAll')}</button>
+        <button onClick={() => play(shuffle(order))} disabled={!order.length}><I.Shuffle size={12} /> {t('shuffle')}</button>
+        <nav className="seg view-seg">
+          <button className={prefs.view === 'songs' ? 'on' : ''} onClick={() => setPrefs(p => ({ ...p, view: 'songs' }))}>{t('viewSongs')}</button>
+          <button className={prefs.view === 'albums' ? 'on' : ''} onClick={() => setPrefs(p => ({ ...p, view: 'albums' }))}>{t('viewAlbums')}</button>
+        </nav>
         <span className="grow" />
         <label className="searchfield">
           <I.Search size={12} />
@@ -149,55 +303,24 @@ function Library({ songs, currentId, play, playNext, enqueue, onImport }: Action
         <table className="songlist">
           <thead>
             <tr>
-              <th className="c-now" />
-              <th>{t('colName')}</th>
-              <th className="c-time">{t('colTime')}</th>
-              <th>{t('colArtist')}</th>
-              <th className="c-album">{t('colAlbum')}</th>
-              <th className="c-by">{t('colAddedBy')}</th>
+              <th className={'c-now' + (key === 'added' ? ' sorted' : '')} onClick={() => sortBy('added')} title={t('sortAdded')}>
+                {key === 'added' && <span className="arrow">{dir === 1 ? '▲' : '▼'}</span>}
+              </th>
+              {th('title', t('colName'))}
+              {th('time', t('colTime'), 'c-time')}
+              {th('artist', t('colArtist'), 'c-artist')}
+              {th('album', t('colAlbum'), 'c-album')}
+              {th('by', t('colAddedBy'), 'c-by')}
               <th className="c-act" />
             </tr>
           </thead>
           <tbody>
-            {shown.map(s => {
-              const ok = s.status === 'ready'
-              return (
-                <tr key={s.id} className={(s.id === selected ? 'sel' : '') + (ok ? '' : ' pending')}
-                  onClick={() => { setSelected(s.id); if (touch && ok) playFrom(s.id) }}
-                  onDoubleClick={() => ok && playFrom(s.id)}>
-                  <td className="c-now">{s.id === currentId && <I.Volume size={13} />}</td>
-                  <td className="c-name">
-                    <span className="name">{s.title}</span>
-                    <span className="sub">{s.artist}</span>
-                    {!ok && <SongStatus song={s} />}
-                  </td>
-                  <td className="c-time">{fmtTime(s.duration)}</td>
-                  <td className="c-artist">{s.artist}</td>
-                  <td className="c-album">{s.album}</td>
-                  <td className="c-by">{s.added_by}</td>
-                  <td className="c-act">
-                    {ok && <>
-                      <button className="mini" onClick={e => { e.stopPropagation(); playNext(s.id) }} title={t('playNext')}><I.PlayNext size={13} /></button>
-                      <button className="mini" onClick={e => { e.stopPropagation(); enqueue(s.id) }} title={t('addToQueue')}><I.Plus size={13} /></button>
-                      <a className="mini" href={api.downloadUrl(s.id)} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
-                    </>}
-                  </td>
-                </tr>
-              )
-            })}
+            {items.flatMap(it => it.kind === 'song' ? [songRow(it.song)] : albumRow(it.group))}
           </tbody>
         </table>
       )}
     </>
   )
-}
-
-function SongStatus({ song }: { song: Song }) {
-  if (song.status === 'error') {
-    return <span className="status error">{t('failed', { error: errorText(song.error_code, song.error) })}{' '}
-      <a onClick={e => { e.stopPropagation(); api.retry(song.id) }}>{t('retry')}</a></span>
-  }
-  return <span className="status">{song.status === 'working' ? t('downloading', { p: song.progress || 0 }) : t('queued')}</span>
 }
 
 function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string, Song>; currentId?: string }) {
@@ -243,79 +366,3 @@ function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string
   )
 }
 
-function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded, play, enqueue }: {
-  song: CatalogSong; odd: boolean; lib?: Song; currentId?: string; open: boolean
-  onToggle: () => void; onAdded: (s: Song) => void
-} & Pick<Actions, 'play' | 'enqueue'>) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  async function quick() {
-    setBusy(true)
-    setError('')
-    try { onAdded(await api.quick(song)) } catch (err) { setError((err as Error).message) }
-    setBusy(false)
-  }
-
-  return (
-    <>
-      <div className={'result' + (odd ? ' odd' : '') + (lib && lib.id === currentId ? ' now' : '')}>
-        {song.artwork ? <img className="art" src={song.artwork} alt="" loading="lazy" onError={e => { e.currentTarget.style.visibility = 'hidden' }} /> : <div className="art" />}
-        <div className="result-text">
-          <span className="name">{song.title}</span>
-          <span className="sub">{song.artist} — {song.album}{song.year && ` (${song.year})`} · {fmtTime(song.duration)}</span>
-          {lib && lib.status !== 'ready' && <SongStatus song={lib} />}
-          {error && <span className="status error">{error}</span>}
-        </div>
-        {lib?.status === 'ready' ? <>
-          <button className="pill" onClick={() => play([lib.id])}><I.Play size={11} /> {t('play')}</button>
-          <button className="pill" onClick={() => enqueue(lib.id)}><I.Plus size={11} /></button>
-        </> : !lib && <>
-          <button className="pill blue" onClick={quick} disabled={busy} title={song.instant ? t('instantHint') : t('quickHint')}>
-            {busy ? t('findingSource') : song.instant ? t('instant') : t('quickDownload')}
-          </button>
-          <button className={'pill' + (open ? ' pressed' : '')} onClick={onToggle}>{t('pickSource')}</button>
-        </>}
-      </div>
-      {open && <SourcePicker song={song} onAdded={onAdded} />}
-    </>
-  )
-}
-
-function SourcePicker({ song, onAdded }: { song: CatalogSong; onAdded: (s: Song) => void }) {
-  const [where, setWhere] = useState('youtube')
-  const [list, setList] = useState<Source[] | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    setList(null)
-    setError('')
-    api.sources(song, where).then(setList).catch(e => setError((e as Error).message))
-  }, [song, where])
-
-  return (
-    <div className="picker">
-      <nav className="seg">
-        <button className={where === 'youtube' ? 'on' : ''} onClick={() => setWhere('youtube')}>YouTube</button>
-        <button className={where === 'bili' ? 'on' : ''} onClick={() => setWhere('bili')}>{t('bilibili')}</button>
-      </nav>
-      {error && <p className="error">{error}</p>}
-      {!list && !error && <p className="muted small">{t('findingSources')}</p>}
-      {list?.map(r => (
-        <div key={r.source + r.id} className="source">
-          <img src={r.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
-          <div className="result-text">
-            <span className="name">{r.title}</span>
-            <span className="sub">{r.channel}{r.album && ` · ${r.album}`} · {fmtTime(r.duration)}
-              {r.tags.map(tag => <span key={tag} className={'tag' + (tag === 'ytmusic' ? ' good' : '')}>
-                {tag === 'ytmusic' ? t('official') : tag}</span>)}
-              {Math.abs((r.duration || 0) - (song.duration || 0)) <= 2 && <span className="tag good">{t('sameLength')}</span>}
-            </span>
-          </div>
-          <a className="mini" href={r.url} target="_blank" rel="noreferrer" title={t('openSource')}>↗</a>
-          <button className="pill" onClick={() => api.add(r, song).then(onAdded).catch(e => setError((e as Error).message))}>{t('useThis')}</button>
-        </div>
-      ))}
-    </div>
-  )
-}

@@ -14,6 +14,7 @@ import auth
 import i18n
 import catalog as cat
 import library as lib
+import pages
 import search as se
 
 app = FastAPI(title="Yoinker")
@@ -100,13 +101,39 @@ def catalog_search(q: str, _=Depends(auth.current_user)):
         results = cat.search(q)
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
+    return mark(results)
+
+
+def mark(songs: list[dict]) -> list[dict]:
+    """Catalog songs: which are in the library (song_id) and which the store has already (instant)."""
     pool = lib.known()
-    for r in results:
+    for r in songs:
         doc = lib.find(r, pool)
         in_lib = doc and doc.get("music_status") in lib.IN_LIBRARY and not doc.get("music_radio")
         r["song_id"] = doc["id"] if in_lib else None
         r["instant"] = bool(doc) and not in_lib   # the karaoke site already has it: adding takes a second
-    return results
+    return songs
+
+
+@app.get("/api/artist")
+def artist_page(name: str, req: Request, _=Depends(auth.current_user)):
+    try:
+        a = dict(pages.artist(name, i18n.lang_of(req.headers)))
+    except Exception as e:
+        raise HTTPException(502, i18n.tr(f"Couldn't load the artist: {e}", f"加载歌手失败：{e}"))
+    a["top"] = mark([dict(s) for s in a["top"]])
+    return a
+
+
+@app.get("/api/album")
+def album_page(artist: str, title: str, req: Request, _=Depends(auth.current_user)):
+    try:
+        a = pages.album(artist, title, i18n.lang_of(req.headers))
+    except Exception as e:
+        raise HTTPException(502, i18n.tr(f"Couldn't load the album: {e}", f"加载专辑失败：{e}"))
+    if not a:
+        raise HTTPException(404, i18n.tr("Album not found", "没找到这张专辑"))
+    return {**a, "tracks": mark([dict(s) for s in a["tracks"]])}
 
 
 @app.post("/api/songs/quick")

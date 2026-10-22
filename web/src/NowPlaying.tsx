@@ -4,12 +4,14 @@ import { t } from './i18n'
 import * as I from './icons'
 import LyricsView from './Lyrics'
 import { ModeButtons, type Transport } from './Modes'
+import type { Page } from './Pages'
 import type { Queue } from './queue'
+import { leadArtist } from './text'
 
 /** Full screen: the album cover as a spinning record, and the lyrics. */
-export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, onClose, onQueue, onSong }: {
+export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, onClose, onQueue, onSong, open }: {
   song: Song; tr: Transport; lyrics: Lyrics | null; q: Queue; smartBusy: boolean; preparing: boolean
-  onClose: () => void; onQueue: () => void; onSong: (s: Song) => void
+  onClose: () => void; onQueue: () => void; onSong: (s: Song) => void; open: (p: Page) => void
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -51,7 +53,10 @@ export default function NowPlaying({ song, tr, lyrics, q, smartBusy, preparing, 
         <div className="full-title">
           <div>
             <h1>{song.title}</h1>
-            <p>{preparing ? t('preparing') : [song.artist, song.album].filter(Boolean).join(' · ')}</p>
+            <p>{preparing ? t('preparing') : <>
+              <a onClick={() => open({ kind: 'artist', name: leadArtist(song.artist) })}>{song.artist}</a>
+              {song.album && <> · <a onClick={() => open({ kind: 'album', artist: song.artist, title: song.album! })}>{song.album}</a></>}
+            </>}</p>
           </div>
           {song.radio && (
             <button className="chip" onClick={() => api.keep(song.id).then(onSong)}><I.Heart size={16} /> {t('keep')}</button>

@@ -5,17 +5,20 @@ import * as I from './icons'
 import { useLyrics } from './Lyrics'
 import { ModeButtons, type Transport } from './Modes'
 import NowPlaying from './NowPlaying'
+import type { Page } from './Pages'
 import QueueDrawer from './QueueDrawer'
 import type { Queue } from './queue'
+import { leadArtist } from './text'
 
 const VOLUME = 'yoinker.volume'
 const SMART_AHEAD = 40   // seconds before the end of the last song: ask for a recommendation (it downloads meanwhile)
 
 /** The audio element, the bar at the bottom, the queue drawer and the full-screen view. */
-export default function Player({ q, byId, onSong }: {
+export default function Player({ q, byId, onSong, open }: {
   q: Queue
   byId: Map<string, Song>
   onSong: (s: Song) => void   // a song the library list doesn't have yet (a recommendation)
+  open: (p: Page) => void     // an artist / album page
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -151,7 +154,12 @@ export default function Player({ q, byId, onSong }: {
                   </button>
                 )}
               </div>
-              <div className="lcd-sub">{preparing ? t('preparing') : [song.artist, song.album].filter(Boolean).join(' — ')}</div>
+              <div className="lcd-sub">
+                {preparing ? t('preparing') : <>
+                  <a onClick={() => open({ kind: 'artist', name: leadArtist(song.artist) })}>{song.artist}</a>
+                  {song.album && <> — <a onClick={() => open({ kind: 'album', artist: song.artist, title: song.album! })}>{song.album}</a></>}
+                </>}
+              </div>
               <div className="lcd-seek">
                 <span>{fmtTime(time)}</span>
                 <input type="range" min={0} max={duration || 0} step={0.1} value={Math.min(time, duration || 0)}
@@ -174,7 +182,8 @@ export default function Player({ q, byId, onSong }: {
       <QueueDrawer open={drawer} onClose={() => setDrawer(false)} q={q} byId={byId} onSong={onSong} smartBusy={smartBusy} />
       {full && song && (
         <NowPlaying song={song} tr={tr} lyrics={lyrics} q={q} smartBusy={smartBusy} preparing={!!preparing}
-          onClose={() => setFull(false)} onQueue={() => setDrawer(true)} onSong={onSong} />
+          onClose={() => setFull(false)} onQueue={() => setDrawer(true)} onSong={onSong}
+          open={p => { setFull(false); open(p) }} />
       )}
     </>
   )
