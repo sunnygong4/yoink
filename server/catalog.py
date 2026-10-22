@@ -10,6 +10,7 @@ import threading
 import time
 
 import httpx
+from songstore import artist_title
 from songstore.keys import flat, norm, same_length
 
 import search as se
@@ -208,3 +209,50 @@ def pick_source(song: dict) -> dict | None:
     """The upload "快速下载" uses: the official track, else the best video if it is clearly this song."""
     best = next(iter(candidates(song)), None)
     return best if best and best["fit"] >= 5 else None
+
+
+# ---------- recommendations ----------
+
+def _seconds(length: str | None) -> int | None:
+    if not length:
+        return None
+    s = 0
+    for part in length.split(":"):
+        s = s * 60 + int(part or 0)
+    return s
+
+
+def seed_video(doc: dict) -> str | None:
+    """A YouTube video id to start a radio from: the song's own, or its YouTube Music track."""
+    if doc["id"].startswith("yt-"):
+        return doc["id"][3:]
+    artist, title = artist_title(doc)
+    if not title:
+        return None
+    song = {"artist": artist or "", "title": title, "duration": doc.get("duration")}
+    tracks = ytmusic(song)
+    best = next((t for t in tracks if is_track(t, song)), tracks[0] if tracks else None)
+    return best["id"] if best else None
+
+
+def radio(doc: dict) -> list[tuple[dict, dict]]:
+    """Songs like this one, from YouTube Music's radio: (upload, catalog-style song) pairs, best first."""
+    from ytmusicapi import YTMusic
+    vid = seed_video(doc)
+    if not vid:
+        return []
+    out = []
+    for t in (YTMusic().get_watch_playlist(videoId=vid, limit=25, radio=True).get("tracks") or [])[1:]:   # [0] is the seed
+        if not t.get("videoId") or not t.get("title"):
+            continue
+        artists = [a["name"] for a in t.get("artists") or [] if a.get("name")]
+        duration = _seconds(t.get("length"))
+        thumbs = t.get("thumbnail") or []
+        r = {"source": "youtube", "id": t["videoId"], "url": f"https://music.youtube.com/watch?v={t['videoId']}",
+             "title": t["title"], "channel": ", ".join(artists), "duration": duration, "views": None,
+             "thumbnail": f"https://i.ytimg.com/vi/{t['videoId']}/mqdefault.jpg", "tags": ["ytmusic"]}
+        song = {"title": t["title"], "artist": artists[0] if artists else "", "album": (t.get("album") or {}).get("name"),
+                "duration": duration,
+                "artwork": re.sub(r"=w\d+-h\d+", "=w544-h544", thumbs[-1]["url"]) if thumbs else None}
+        out.append((r, song))
+    return out

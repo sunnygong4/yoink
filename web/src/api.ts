@@ -17,6 +17,7 @@ export type Song = {
   added_by: string | null
   added_at: number | null
   lyrics: boolean
+  radio: boolean   // recommended by smart play, not (yet) in the library
 }
 
 // a real song from the catalog (iTunes): one per song per artist
@@ -86,6 +87,8 @@ export const api = {
   sources: (song: CatalogSong, where: string) => call<Source[]>(`/api/sources?where=${where}`, song),
   add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
+  radio: (seed: string, exclude: string[]) => call<Song>('/api/radio', { seed, exclude }),
+  keep: (id: string) => call<Song>(`/api/songs/${id}/keep`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,
   downloadUrl: (id: string) => `/api/songs/${id}/download`,

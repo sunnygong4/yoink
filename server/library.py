@@ -4,9 +4,12 @@ Yoinker's fields on a song document are prefixed music_ (the karaoke site owns s
     music_status   queued | working | ready | error
     music_progress 0-100, music_error, added_by (name), added_at
 Songs added from the catalog also get display_title / display_artist / album / artwork (the real song's name and cover).
+Recommended songs (smart play) are downloaded with music_radio set: playable, but not in the library until someone
+keeps them.
 """
 import hashlib
 import json
+import random
 import os
 import re
 import shutil
@@ -19,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from songstore import AUDIO, artist_title, open_store
+from songstore import AUDIO, artist_title, open_store, work_key
 from songstore.identify import identify
 from songstore.keys import same_length, split_title
 
@@ -56,11 +59,13 @@ def view(doc: dict) -> dict:
         "added_by": doc.get("added_by"),
         "added_at": doc.get("added_at") or doc.get("created"),
         "lyrics": store.file(doc["id"], "lyrics.json") is not None,
+        "radio": bool(doc.get("music_radio")),
     }
 
 
 def library() -> list[dict]:
-    """Only songs someone added here; what else the karaoke site has stays out of sight until someone asks for it."""
+    """Songs someone added here, plus recommended ones (radio: true, which the library list hides). What else the
+    karaoke site has stays out of sight until someone asks for it."""
     out = [view(d) for d in store.all() if d.get("music_status") in IN_LIBRARY]
     out.sort(key=lambda s: s["added_at"] or 0, reverse=True)
     return out
@@ -108,28 +113,63 @@ def canonical(song: dict | None) -> dict:
             "artwork": song.get("artwork")}
 
 
-def add(r: dict, user: dict, song: dict | None = None) -> dict:
+def add(r: dict, user: dict, song: dict | None = None, radio: bool = False) -> dict:
     """Add an upload (a search result) to the library, named after the catalog song it is, if given."""
     sid = song_id(r["source"], r["id"])
     doc = store.get(sid)
     if doc and doc.get("music_status") in ("queued", "working", "ready"):
-        return view(doc)
+        return keep(sid, user) if doc.get("music_radio") and not radio else view(doc)
     fields = {k: r.get(k) for k in ("source", "url", "title", "channel", "duration", "thumbnail")}
     fields.update(canonical(song))
-    keep = {k: v for k, v in fields.items() if v and not (doc or {}).get(k)}   # never overwrite karaoke's metadata
-    return _queue(sid, keep, user)
+    missing = {k: v for k, v in fields.items() if v and not (doc or {}).get(k)}   # never overwrite karaoke's metadata
+    return _queue(sid, missing, user, radio)
 
 
 def quick(song: dict, user: dict) -> dict:
     """快速下载: reuse the store's copy of the song if there is one, else download the best upload of it."""
     if doc := find(song):
         if doc.get("music_status") in ("queued", "working", "ready"):
-            return view(doc)
+            return keep(doc["id"], user) if doc.get("music_radio") else view(doc)
         return _queue(doc["id"], {k: v for k, v in canonical(song).items() if v and not doc.get(k)}, user)
     r = catalog.pick_source(song)
     if not r:
         raise LookupError("no reliable source")
     return add(r, user, song)
+
+
+def keep(sid: str, user: dict) -> dict:
+    """A recommended song someone liked: into the library, as theirs."""
+    return view(store.update(sid, music_radio=False, added_by=user["name"], added_at=time.time()))
+
+
+def recommend(seed: str, exclude: list[str], user: dict) -> dict | None:
+    """Smart play: a song like `seed` that isn't in `exclude` (the queue, recently played), downloaded if needed.
+    Picks at random among the closest few so the same seed doesn't always lead to the same song."""
+    doc = store.get(seed)
+    if not doc:
+        return None
+    skip = set(exclude) | {seed}
+    skip_keys = {k for k in (work_key(store.get(s) or {}) for s in skip) if k}
+    pool = known()
+    options = []
+    for r, song in catalog.radio(doc):
+        sid = song_id(r["source"], r["id"])
+        have = store.get(sid) if sid in store.ids() else find(song, pool)
+        key = work_key(have) if have else work_key({"display_title": song["title"], "display_artist": song["artist"]})
+        if sid in skip or (have and have["id"] in skip) or key in skip_keys:
+            continue
+        options.append((r, song, have))
+        if len(options) >= 4:
+            break
+    if not options:
+        return None
+    r, song, have = random.choice(options)
+    if not have:
+        return add(r, user, song, radio=True)
+    if have.get("music_status") in ("queued", "working", "ready"):
+        return view(have)
+    fields = {k: v for k, v in canonical(song).items() if v and not have.get(k)}
+    return _queue(have["id"], fields, user, radio=True)
 
 
 # ---------- importing people's own files ----------
@@ -269,9 +309,9 @@ def original(doc: dict) -> Path | None:
     return store.file(doc["id"], doc["file"]) if doc.get("source") == "local" and doc.get("file") else None
 
 
-def _queue(sid: str, fields: dict, user: dict) -> dict:
+def _queue(sid: str, fields: dict, user: dict, radio: bool = False) -> dict:
     doc = store.update(sid, **fields, music_status="queued", music_progress=0, music_error=None,
-                       added_by=user["name"], added_at=time.time())
+                       added_by=user["name"], added_at=time.time(), music_radio=radio)
     enqueue(sid)
     return view(doc)
 

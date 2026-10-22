@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, fmtTime, type CatalogSong, type Song, type Source, type User } from './api'
 import { errorText, getLang, setLang, t } from './i18n'
+import * as I from './icons'
 import Import from './Import'
 import Login from './Login'
 import Player from './Player'
-
-const SAVED = 'yoinker.queue'
-
-function loadQueue(): { ids: string[]; pos: number } {
-  try {
-    const q = JSON.parse(localStorage.getItem(SAVED) || '')
-    if (Array.isArray(q.ids)) return q
-  } catch { /* nothing saved */ }
-  return { ids: [], pos: 0 }
-}
+import { useQueue } from './queue'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -31,9 +23,9 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [, rerender] = useState(getLang())
   const [tab, setTab] = useState<'library' | 'search'>('library')
   const [songs, setSongs] = useState<Song[]>([])
-  const [queue, setQueue] = useState(loadQueue)
-  const [autoplay, setAutoplay] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
+  const [menu, setMenu] = useState(false)
+  const q = useQueue()
 
   const refresh = useCallback(() => { api.songs().then(setSongs).catch(() => {}) }, [])
 
@@ -41,58 +33,51 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   useEffect(() => {
     refresh()
     const es = new EventSource('/api/events')
-    let t = 0
-    es.onmessage = () => { clearTimeout(t); t = window.setTimeout(refresh, 300) }
-    return () => { es.close(); clearTimeout(t) }
+    let timer = 0
+    es.onmessage = () => { clearTimeout(timer); timer = window.setTimeout(refresh, 300) }
+    return () => { es.close(); clearTimeout(timer) }
   }, [refresh])
 
-  useEffect(() => {
-    try { localStorage.setItem(SAVED, JSON.stringify(queue)) } catch { /* private mode */ }
-  }, [queue])
+  // a song we just got from the server (a recommendation, a kept song): show it before the next refresh
+  const onSong = useCallback((s: Song) => {
+    setSongs(xs => xs.some(x => x.id === s.id) ? xs.map(x => (x.id === s.id ? s : x)) : [s, ...xs])
+  }, [])
 
   const byId = useMemo(() => new Map(songs.map(s => [s.id, s])), [songs])
-  const queueSongs = queue.ids.map(id => byId.get(id)).filter((s): s is Song => !!s)
-  const current = byId.get(queue.ids[queue.pos]) || null
-  const ready = songs.filter(s => s.status === 'ready')
-
-  function play(ids: string[], start = 0) {
-    setAutoplay(true)
-    setQueue({ ids, pos: start })
-  }
-  function playNext(id: string) {
-    if (!current) return play([id])
-    setQueue(q => ({ ids: [...q.ids.slice(0, q.pos + 1), id, ...q.ids.slice(q.pos + 1)], pos: q.pos }))
-  }
-  function enqueue(id: string) {
-    if (!current) return play([id])
-    setQueue(q => ({ ...q, ids: [...q.ids, id] }))
-  }
-  const go = (pos: number) => { setAutoplay(true); setQueue(q => ({ ...q, pos })) }
-  function remove(i: number) {
-    setQueue(q => ({ ids: q.ids.filter((_, j) => j !== i), pos: i < q.pos ? q.pos - 1 : q.pos }))
-  }
+  const library = useMemo(() => songs.filter(s => !s.radio), [songs])
 
   async function invite() {
     const { code } = await api.invite()
     setInviteLink(`${location.origin}/?invite=${code}`)
   }
 
-  const actions = { play, playNext, enqueue }
+  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue }
 
   return (
     <div className="app">
-      <header>
-        <nav>
-          <button className={tab === 'library' ? 'active' : ''} onClick={() => setTab('library')}>{t('library')}</button>
-          <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>{t('find')}</button>
+      <header className="top">
+        <div className="brand"><img src="/icon.svg" alt="" /><span>Yoinker</span></div>
+        <nav className="tabs">
+          <button className={tab === 'library' ? 'on' : ''} onClick={() => setTab('library')}>
+            <I.Library size={18} /> {t('library')}
+          </button>
+          <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>
+            <I.Search size={18} /> {t('find')}
+          </button>
         </nav>
         <div className="me">
-          <button className="link" onClick={() => { const l = getLang() === 'zh' ? 'en' : 'zh'; setLang(l); rerender(l) }}>
-            {getLang() === 'zh' ? 'EN' : '中文'}
+          <button className="avatar" onClick={() => setMenu(!menu)} title={user.name} aria-expanded={menu}>
+            {user.name.slice(0, 1).toUpperCase()}
           </button>
-          <button className="link" onClick={invite}>{t('invite')}</button>
-          <span className="muted">{user.name}</span>
-          <button className="link" onClick={onLogout}>{t('logout')}</button>
+          {menu && <>
+            <div className="menu-catch" onClick={() => setMenu(false)} />
+            <div className="menu" onClick={() => setMenu(false)}>
+              <div className="menu-name">{user.name}</div>
+              <button onClick={invite}>{t('invite')}</button>
+              <button onClick={() => { const l = getLang() === 'zh' ? 'en' : 'zh'; setLang(l); rerender(l) }}>{t('language')}</button>
+              <button onClick={onLogout}>{t('logout')}</button>
+            </div>
+          </>}
         </div>
       </header>
       {inviteLink && (
@@ -103,12 +88,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
       )}
       <main>
         {tab === 'library'
-          ? <Library songs={songs} ready={ready} currentId={current?.id} {...actions} />
-          : <Search byId={byId} currentId={current?.id} {...actions} />}
+          ? <Library songs={library} currentId={q.current} {...actions} />
+          : <Search byId={byId} currentId={q.current} {...actions} />}
       </main>
-      <Player song={current} autoplay={autoplay} queue={queueSongs} pos={queue.pos}
-        hasPrev={queue.pos > 0} hasNext={queue.pos < queue.ids.length - 1}
-        onPrev={() => go(queue.pos - 1)} onNext={() => go(queue.pos + 1)} onJump={go} onRemove={remove} />
+      <Player q={q} byId={byId} onSong={onSong} />
     </div>
   )
 }
@@ -128,39 +111,65 @@ function shuffle<T>(xs: T[]): T[] {
   return a
 }
 
-function Library({ songs, ready, currentId, play, playNext, enqueue }: Actions & { songs: Song[]; ready: Song[]; currentId?: string }) {
+function Library({ songs, currentId, play, playNext, enqueue }: Actions & { songs: Song[]; currentId?: string }) {
   const [filter, setFilter] = useState('')
   const [importing, setImporting] = useState(false)
   const f = filter.trim().toLowerCase()
-  const shown = f ? songs.filter(s => `${s.title} ${s.artist} ${s.added_by}`.toLowerCase().includes(f)) : songs
+  const shown = f ? songs.filter(s => `${s.title} ${s.artist} ${s.album} ${s.added_by}`.toLowerCase().includes(f)) : songs
   const shownReady = shown.filter(s => s.status === 'ready').map(s => s.id)
+  const readyCount = songs.filter(s => s.status === 'ready').length
 
   return (
     <>
-      <div className="toolbar">
-        <input placeholder={t('filterLibrary')} value={filter} onChange={e => setFilter(e.target.value)} />
-        <button onClick={() => play(shownReady)} disabled={!shownReady.length}>{t('playAll')}</button>
-        <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}>{t('shuffle')}</button>
-        <button className={importing ? 'active' : ''} onClick={() => setImporting(!importing)}>{t('importBtn')}</button>
+      <div className="page-head">
+        <div>
+          <h1>{t('library')}</h1>
+          <p className="muted small">{songs.length ? t('songCount', { n: readyCount }) : t('emptyLibrary')}</p>
+        </div>
+        <div className="actions">
+          <button className="primary" onClick={() => play(shownReady)} disabled={!shownReady.length}>
+            <I.Play size={16} /> {t('playAll')}
+          </button>
+          <button onClick={() => play(shuffle(shownReady))} disabled={!shownReady.length}>
+            <I.Shuffle size={16} /> {t('shuffle')}
+          </button>
+          <button onClick={() => setImporting(true)}><I.Upload size={16} /> {t('importBtn')}</button>
+        </div>
       </div>
       {importing && <Import onClose={() => setImporting(false)} />}
-      <p className="muted small">{songs.length ? t('songCount', { n: ready.length }) : t('emptyLibrary')}</p>
-      {shown.map(s => (
-        <div key={s.id} className={'row' + (s.id === currentId ? ' now' : '')}>
-          {s.thumbnail ? <img className="thumb square" src={s.thumbnail} alt="" loading="lazy" /> : <div className="thumb square" />}
-          <button className="grow" disabled={s.status !== 'ready'}
-            onClick={() => play(shownReady, Math.max(0, shownReady.indexOf(s.id)))}>
-            <b>{s.title}</b>
-            <span className="muted">{s.artist}{s.album && ` · ${s.album}`} · {fmtTime(s.duration)}{s.added_by && ` · ${t('addedBy', { name: s.added_by })}`}</span>
-            {s.status !== 'ready' && <SongStatus song={s} />}
-          </button>
-          {s.status === 'ready' && <>
-            <button className="icon" onClick={() => playNext(s.id)} title={t('playNext')}>⤵</button>
-            <button className="icon" onClick={() => enqueue(s.id)} title={t('addToQueue')}>＋</button>
-            <a className="icon" href={api.downloadUrl(s.id)} download title={t('download')}>⬇</a>
-          </>}
-        </div>
-      ))}
+      {songs.length > 0 && (
+        <label className="filter">
+          <I.Search size={16} />
+          <input placeholder={t('filterLibrary')} value={filter} onChange={e => setFilter(e.target.value)} />
+        </label>
+      )}
+      <div className="songs">
+        {shown.map((s, i) => (
+          <div key={s.id} className={'song' + (s.id === currentId ? ' now' : '') + (s.status !== 'ready' ? ' pending' : '')}
+            onDoubleClick={() => s.status === 'ready' && play(shownReady, Math.max(0, shownReady.indexOf(s.id)))}>
+            <button className="cover-btn" disabled={s.status !== 'ready'} title={t('play')}
+              onClick={() => play(shownReady, Math.max(0, shownReady.indexOf(s.id)))}>
+              {s.thumbnail ? <img src={s.thumbnail} alt="" loading="lazy" /> : <span className="blank">{i + 1}</span>}
+              <span className="hover-play"><I.Play size={18} /></span>
+            </button>
+            <div className="song-text">
+              <b>{s.title}</b>
+              <span>{s.artist}</span>
+              {s.status !== 'ready' && <SongStatus song={s} />}
+            </div>
+            <span className="song-album">{s.album}</span>
+            <span className="song-by">{s.added_by}</span>
+            <span className="song-time">{fmtTime(s.duration)}</span>
+            <div className="song-actions">
+              {s.status === 'ready' && <>
+                <button className="ib" onClick={() => playNext(s.id)} title={t('playNext')}><I.PlayNext size={18} /></button>
+                <button className="ib" onClick={() => enqueue(s.id)} title={t('addToQueue')}><I.Plus size={18} /></button>
+                <a className="ib" href={api.downloadUrl(s.id)} download title={t('download')}><I.Download size={18} /></a>
+              </>}
+            </div>
+          </div>
+        ))}
+      </div>
     </>
   )
 }
@@ -195,9 +204,11 @@ function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string
 
   return (
     <>
-      <form className="toolbar" onSubmit={run}>
+      <div className="page-head"><h1>{t('find')}</h1></div>
+      <form className="searchbar" onSubmit={run}>
+        <I.Search size={18} />
         <input placeholder={t('searchPlaceholder')} value={q} onChange={e => setQ(e.target.value)} autoFocus />
-        <button type="submit" disabled={busy}>{busy ? t('searching') : t('search')}</button>
+        <button type="submit" className="primary" disabled={busy}>{busy ? t('searching') : t('search')}</button>
       </form>
       {error && <p className="error">{error}</p>}
       {results.map(r => (
@@ -234,10 +245,10 @@ function CatalogRow({ song, lib, currentId, open, onToggle, onAdded, play, enque
           {error && <span className="error">{error}</span>}
         </div>
         {lib?.status === 'ready' ? <>
-          <button className="icon" onClick={() => play([lib.id])} title={t('play')}>▶</button>
-          <button className="icon" onClick={() => enqueue(lib.id)} title={t('addToQueue')}>＋</button>
+          <button className="ib" onClick={() => play([lib.id])} title={t('play')}><I.Play size={18} /></button>
+          <button className="ib" onClick={() => enqueue(lib.id)} title={t('addToQueue')}><I.Plus size={18} /></button>
         </> : !lib && <>
-          <button onClick={quick} disabled={busy} title={song.instant ? t('instantHint') : t('quickHint')}>
+          <button className="primary" onClick={quick} disabled={busy} title={song.instant ? t('instantHint') : t('quickHint')}>
             {busy ? t('findingSource') : song.instant ? t('instant') : t('quickDownload')}
           </button>
           <button className={open ? 'active' : ''} onClick={onToggle}>{t('pickSource')}</button>

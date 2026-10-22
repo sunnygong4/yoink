@@ -103,7 +103,7 @@ def catalog_search(q: str, _=Depends(auth.current_user)):
     pool = lib.known()
     for r in results:
         doc = lib.find(r, pool)
-        in_lib = doc and doc.get("music_status") in lib.IN_LIBRARY
+        in_lib = doc and doc.get("music_status") in lib.IN_LIBRARY and not doc.get("music_radio")
         r["song_id"] = doc["id"] if in_lib else None
         r["instant"] = bool(doc) and not in_lib   # the karaoke site already has it: adding takes a second
     return results
@@ -159,6 +159,30 @@ def _doc_or_404(sid: str) -> dict:
     if not doc or not doc.get("music_status"):
         raise HTTPException(404, i18n.tr("No such song", "没有这首歌"))
     return doc
+
+
+class RadioRequest(BaseModel):
+    seed: str
+    exclude: list[str] = []
+
+
+@app.post("/api/radio")
+def radio(body: RadioRequest, user=Depends(auth.current_user)):
+    """Smart play: the next song, like the seed one. It starts downloading now, so it's ready when it's its turn."""
+    try:
+        song = lib.recommend(body.seed, body.exclude[-200:], user)
+    except Exception as e:
+        raise HTTPException(502, i18n.tr(f"Recommendations failed: {e}", f"推荐失败：{e}"))
+    if not song:
+        raise HTTPException(404, i18n.tr("Nothing to recommend", "没有可推荐的歌"))
+    return song
+
+
+@app.post("/api/songs/{sid}/keep")
+def keep(sid: str, user=Depends(auth.current_user)):
+    """A recommended song goes into the library."""
+    _doc_or_404(sid)
+    return lib.keep(sid, user)
 
 
 @app.post("/api/songs/{sid}/retry")
