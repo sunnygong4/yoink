@@ -211,7 +211,7 @@ tr.sel .c-now { color: #fff; }
 .c-time { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
 .c-album { width: 22%; }
 .c-by { width: 11%; }
-.c-act { width: 96px; text-align: right; text-overflow: clip !important; }
+.c-act { width: 132px; text-align: right; text-overflow: clip !important; white-space: nowrap; }   /* five buttons */
 .c-act > * { visibility: hidden; }
 tr:hover .c-act > *, tr.sel .c-act > * { visibility: visible; }
 .status { display: block; font-size: 10px; color: var(--grey); white-space: normal; }
@@ -394,8 +394,8 @@ a.mini:hover { text-decoration: none; }
   tr.sel .c-name .sub { color: #e3ecff; }
   .songlist td { height: 44px; }
   .c-name .name { font-weight: bold; font-size: 13px; }
-  .c-act { width: 34px; }
-  .c-act .mini:not(a) { display: none; }
+  .c-act { width: 56px; }
+  .c-act .mini:not(a):not(.rm) { display: none; }   /* phones: download and remove */
   .c-act > * { visibility: visible; }
   .picker { margin-left: 10px; }
   .statusbar { height: auto; padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); }

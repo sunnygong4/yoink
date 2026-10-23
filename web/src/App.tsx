@@ -375,7 +375,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
             <a className="mini" href={api.downloadUrl(s.id)} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
           </>}
           {s.status === 'ready' && <button className="mini" onClick={e => { e.stopPropagation(); setEditing(s) }} title={t('editSong')}>✎</button>}
-          <button className="mini" onClick={e => { e.stopPropagation(); onRemove(s.id) }} title={t('removeFromLibrary')}><I.Close size={12} /></button>
+          <button className="mini rm" onClick={e => { e.stopPropagation(); onRemove(s.id) }} title={t('removeFromLibrary')}><I.Close size={12} /></button>
         </td>
       </tr>
     )

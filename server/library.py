@@ -80,6 +80,8 @@ def owned(user: dict) -> dict[str, float]:
 def own(sid: str, user: dict):
     conn().execute("insert or ignore into user_songs (user_id, song_id, added_at) values (?, ?, ?)",
                    (user["id"], sid, time.time()))
+    if (store.get(sid) or {}).get("music_unowned_since"):
+        store.update(sid, music_unowned_since=None)   # kept again: no longer on its way out
 
 
 def disown(sid: str, user: dict):
@@ -170,10 +172,47 @@ def clean_radio():
         print(f"[library] dropped smart-play song {sid}")
 
 
+UNOWNED_GRACE = 30 * 24 * 3600   # a song in nobody's library (and no 听友群's playlist) is deleted after this
+
+
+def clean_unowned():
+    """Delete songs nobody keeps: a month after they were last in anyone's library or a group's playlist. The clock
+    starts when the janitor first sees them unowned and stops if someone adds them again. Songs the karaoke site
+    holds stay (it uses the same files)."""
+    now = time.time()
+    c = conn()
+    kept = {r[0] for r in c.execute("select distinct song_id from user_songs")} |         {r[0] for r in c.execute("select distinct song_id from group_songs")}
+    for d in store.all():
+        status = d.get("music_status")
+        if not status or d.get("music_radio") or status in ("queued", "working"):
+            continue   # not Yoinker's, a smart-play song (cleaned on its own), or still downloading
+        sid = d["id"]
+        if sid in kept or store.holders(sid) - {APP}:
+            if d.get("music_unowned_since"):
+                store.update(sid, music_unowned_since=None)
+            continue
+        since = d.get("music_unowned_since")
+        if not since:
+            store.update(sid, music_unowned_since=now)
+            continue
+        if now - since < UNOWNED_GRACE:
+            continue
+        store.release(sid, APP)
+        if source_file(d):
+            # the karaoke site's MV (or an imported file) is in there too: only Yoinker's audio goes
+            for name in MUSIC_FILES:
+                (store.song_dir(sid) / name).unlink(missing_ok=True)
+            store.update(sid, music_status=None, music_radio=None, music_progress=None, music_unowned_since=None)
+        else:
+            store.delete(sid)
+        print(f"[library] dropped {sid} ({d.get('display_title') or d.get('title')}): nobody kept it for a month")
+
+
 def _janitor():
     while True:
         try:
             clean_radio()
+            clean_unowned()
         except Exception:
             traceback.print_exc()
         time.sleep(10 * 60)
