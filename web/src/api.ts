@@ -186,6 +186,15 @@ export const api = {
   }),
 }
 
+/** What the audio is doing on a phone, into the server's log (iPhone home-screen problems can't be seen otherwise). */
+export function report(event: string, detail: Record<string, unknown> = {}) {
+  try {
+    const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
+    navigator.sendBeacon?.('/api/clientlog', new Blob([JSON.stringify({ event, standalone, ua: navigator.userAgent, ...detail })],
+      { type: 'application/json' }))
+  } catch { /* nothing to report with */ }
+}
+
 export function fmtTime(s: number | null | undefined) {
   if (!s || !isFinite(s)) return '0:00'
   const m = Math.floor(s / 60)

@@ -38,21 +38,20 @@ const mb = (n: number) => (n >= 1e9 ? `${(n / 1073741824).toFixed(1)} GB` : `${(
 
 // a little buzz with each click, like the iPod's. Android: the vibration API. iPhone (iOS 18+): Safari has no
 // vibration API, but toggling a switch control gives a haptic tap, so a hidden one is toggled.
-let haptic: HTMLLabelElement | null = null
+// (only from a tap: iOS doesn't buzz for a finger sliding round the wheel)
 function buzz() {
   if (navigator.vibrate) { navigator.vibrate(6); return }
   if (!iOS) return
-  if (!haptic) {
-    haptic = document.createElement('label')
-    haptic.ariaHidden = 'true'
-    haptic.style.cssText = 'position:fixed;left:-100px;top:0;width:1px;height:1px;overflow:hidden;opacity:0'
-    const box = document.createElement('input')
-    box.type = 'checkbox'
-    box.setAttribute('switch', '')
-    haptic.appendChild(box)
-    document.body.appendChild(haptic)
-  }
-  haptic.click()
+  const label = document.createElement('label')
+  label.ariaHidden = 'true'
+  label.style.display = 'none'
+  const box = document.createElement('input')
+  box.type = 'checkbox'
+  box.setAttribute('switch', '')
+  label.appendChild(box)
+  document.head.appendChild(label)
+  label.click()
+  label.remove()
 }
 
 let audioCtx: AudioContext | null = null
@@ -67,7 +66,6 @@ function tick() {   // the click wheel's click
   buzz()
   try {
     if (!audioCtx || audioCtx.state !== 'running') return
-    audioCtx ??= new AudioContext()
     const o = audioCtx.createOscillator(), g = audioCtx.createGain()
     o.frequency.value = 2400
     g.gain.setValueAtTime(0.05, audioCtx.currentTime)
@@ -383,12 +381,20 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     while (d.acc > STEP) { d.acc -= STEP; scroll(1) }
     while (d.acc < -STEP) { d.acc += STEP; scroll(-1) }
   }
+  const tapped = useRef<{ x: number; y: number } | null>(null)
   const onUp = () => {
     const d = drag.current
     drag.current = null
-    if (!d || d.moved >= 0.15) return
-    if (Math.abs(d.y) > Math.abs(d.x)) (d.y < 0 ? menu : playPause)()   // a tap, not a turn
-    else (d.x < 0 ? prev : next)()
+    tapped.current = d && d.moved < 0.15 ? { x: d.x, y: d.y } : null   // a tap, not a turn: acted on in the click
+  }
+  // the click that follows: iPhones only let audio start (⏯) and buzz inside a click
+  const onWheelClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).classList.contains('center')) return
+    const tp = tapped.current
+    tapped.current = null
+    if (!tp) return
+    if (Math.abs(tp.y) > Math.abs(tp.x)) (tp.y < 0 ? menu : playPause)()
+    else (tp.x < 0 ? prev : next)()
   }
   // the scroll handlers read the latest screen through this
   const scrollRef = useRef(scroll)
@@ -489,7 +495,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         </div>
         <div className="pod-wheel" ref={wheel}
           style={{ top: fit.full ? 16 + SCREEN + Math.max(20, (fit.h - 16 - SCREEN - WHEEL) / 2) : undefined }}
-          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => { drag.current = null }}>
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onClick={onWheelClick} onPointerCancel={() => { drag.current = null }}>
           <span className="pod-label w-menu">MENU</span>
           <span className="pod-label w-prev">⏮︎</span>
           <span className="pod-label w-next">⏭︎</span>

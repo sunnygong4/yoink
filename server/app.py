@@ -330,6 +330,17 @@ def radio(body: RadioRequest, user=Depends(auth.current_user)):
     return song
 
 
+@app.post("/api/clientlog")
+async def client_log(req: Request, user=Depends(auth.current_user)):
+    """What a phone's audio is doing (play failed, media errors), into the log: iPhone problems can't be seen otherwise."""
+    try:
+        body = (await req.body())[:2000].decode("utf-8", "replace")
+    except Exception:
+        body = "?"
+    print(f"[client] {user['name']}: {body}", flush=True)
+    return {"ok": True}
+
+
 class Play(BaseModel):
     song_id: str
 

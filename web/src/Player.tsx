@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, fmtTime, type Song } from './api'
+import { api, fmtTime, report, type Song } from './api'
 import { t } from './i18n'
 import * as I from './icons'
 import { useLyrics } from './Lyrics'
@@ -13,8 +13,23 @@ import { savedAudio } from './offline'
 import { leadArtist } from './text'
 
 const VOLUME = 'yoinker.volume'
-// a moment of silence (a tiny WAV) to unlock audio on iPhones
-const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA='
+// a moment of silence (a tenth of a second of 8 kHz WAV) to unlock audio on iPhones
+const SILENCE = (() => {
+  const n = 800, b = new Uint8Array(44 + n), v = new DataView(b.buffer)
+  const str = (o: number, s: string) => { for (let i = 0; i < s.length; i++) b[o + i] = s.charCodeAt(i) }
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE'); str(12, 'fmt ')
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true)
+  str(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44)
+  return `data:audio/wav;base64,${btoa(String.fromCharCode(...b))}`
+})()
+const isPhone = /iPhone|iPad|iPod|Android/.test(navigator.userAgent)
+/** play(), and on phones what came of it into the server's log. */
+function start(a: HTMLAudioElement, why: string) {
+  const src = a.src.startsWith('blob:') ? 'saved' : a.src.startsWith('data:') ? 'silence' : 'server'
+  return a.play().then(() => { if (isPhone && why !== 'unlock') report('play ok', { why, src }) },
+    (e: Error) => { if (isPhone) report('play failed', { why, src, name: e.name, msg: e.message }); throw e })
+}
 const SMART_AHEAD = 40   // seconds before the end of the last song: ask for a recommendation (it downloads meanwhile)
 
 /** The audio element, the bar at the bottom, the queue drawer and the full-screen view. */
@@ -62,7 +77,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       a.src = local ?? api.audioUrl(song.id)
       setTime(0)
       reported.current = null
-      if (q.autoplay) a.play().catch(() => setPlaying(false))
+      if (q.autoplay) start(a, 'song').catch(() => setPlaying(false))
     })
     return () => { live = false }
   }, [song?.id, ready])
@@ -80,13 +95,11 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       if (!a) return
       const nav = navigator as { audioSession?: { type: string } }
       if (nav.audioSession) nav.audioSession.type = 'playback'   // play with the silent switch on (iOS 17+)
+      const done = () => { for (const ev of EVENTS) removeEventListener(ev, unlock, true) }
       if (!a.src) {
         a.src = SILENCE
-        a.play().then(() => { if (a.src === SILENCE) a.pause() }).catch(() => {})
-      } else if (a.paused) {
-        a.play().then(() => a.pause()).catch(() => {})
-      }
-      for (const ev of EVENTS) removeEventListener(ev, unlock, true)
+        start(a, 'unlock').then(() => { if (a.src === SILENCE) a.pause(); done() }, () => {})   // failed: the next tap tries again
+      } else done()   // a song is loaded: playing it from a tap does the same
     }
     const EVENTS = ['touchend', 'click', 'keydown'] as const
     for (const ev of EVENTS) addEventListener(ev, unlock, true)
@@ -139,7 +152,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
   const toggle = useCallback(() => {
     const a = audio.current
     if (!a || !ready) return
-    if (a.paused) a.play()
+    if (a.paused) start(a, 'toggle').catch(() => {})
     else a.pause()
   }, [ready])
   const seek = useCallback((s: number) => { if (audio.current) audio.current.currentTime = s }, [])
@@ -204,7 +217,11 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       onPlay={e => setPlaying(e.currentTarget.src !== SILENCE)} onPause={() => setPlaying(false)}
       onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
       onDurationChange={e => setDuration(e.currentTarget.duration)}
-      onEnded={ended} onError={failed} />
+      onEnded={ended} onError={e => {
+        const err = e.currentTarget.error
+        if (isPhone) report('audio error', { code: err?.code, msg: err?.message, src: e.currentTarget.src.slice(0, 40) })
+        failed()
+      }} />
   )
   if (pod) {
     return <>{el}<IPodMode {...pod} saved={saved} online={online} onSong={onSong} q={q} tr={tr} song={song} lyrics={lyrics}
