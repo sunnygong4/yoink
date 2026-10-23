@@ -5,7 +5,7 @@ import { getLang, setLang, t } from './i18n'
 import type { IPod } from './ipod'
 import type { Transport } from './Modes'
 import type { Queue } from './queue'
-import { flat, leadArtist } from './text'
+import { flat, leadArtist, mainArtist } from './text'
 
 // The phone app as an iPod classic: menus on the screen, the click wheel below (go round it to scroll, tap
 // MENU / ⏮ / ⏭ / ⏯, the centre button selects). Everything is here: the library, search, picks, what's saved on
@@ -173,17 +173,23 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         { label: t('podSettings'), more: true, go: () => list('settings', t('podSettings')) },
       ]
       case 'music': return [
+        { label: t('podRecent'), more: true, go: () => list('recent', t('podRecent')) },
         { label: t('podArtists'), more: true, go: () => list('artists', t('podArtists')) },
         { label: t('podAlbums'), more: true, go: () => list('albums', t('podAlbums')) },
         { label: t('podSongs'), more: true, go: () => list('songs', t('podSongs')) },
         ...(!p.online ? [{ label: t('podOfflineOnly'), dim: true }] : []),
       ]
+      case 'recent': {   // 新加入: the library's newest songs first
+        const songs = [...pool].sort((a, b) => (b.added_at || 0) - (a.added_at || 0)).slice(0, 100)
+        if (!songs.length) return [{ label: t('podNoMusic'), dim: true }]
+        return songs.map((x, i) => ({ label: x.title, right: mainArtist(x), go: () => playList(songs, i) }))
+      }
       case 'artists': {
-        const names = [...new Set(pool.map(x => leadArtist(x.artist) || t('podUnknown')))].sort(collator.compare)
+        const names = [...new Set(pool.map(x => mainArtist(x) || t('podUnknown')))].sort(collator.compare)
         return names.map(n => ({ label: n, more: true, go: () => list('artist', n, n) }))
       }
       case 'artist': {
-        const mine = pool.filter(x => (leadArtist(x.artist) || t('podUnknown')) === s.arg)
+        const mine = pool.filter(x => (mainArtist(x) || t('podUnknown')) === s.arg)
         const albums = [...new Set(mine.map(x => x.album || t('podUnknown')))].sort(collator.compare)
         return [
           { label: t('podAllSongs'), more: true, go: () => list('songsOf', s.arg!, `artist:${s.arg}`) },
@@ -192,22 +198,22 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
       }
       case 'albums': {
         const seen = new Map<string, Song>()
-        for (const x of pool) if (x.album && !seen.has(`${flat(x.album)}|${flat(leadArtist(x.artist))}`)) seen.set(`${flat(x.album)}|${flat(leadArtist(x.artist))}`, x)
+        for (const x of pool) if (x.album && !seen.has(`${flat(x.album)}|${flat(mainArtist(x))}`)) seen.set(`${flat(x.album)}|${flat(mainArtist(x))}`, x)
         return [...seen.values()].sort(by(x => x.album!)).map(x => ({
-          label: x.album!, right: leadArtist(x.artist), more: true,
-          go: () => list('songsOf', x.album!, `album:${leadArtist(x.artist)}|${x.album}`),
+          label: x.album!, right: mainArtist(x), more: true,
+          go: () => list('songsOf', x.album!, `album:${mainArtist(x)}|${x.album}`),
         }))
       }
       case 'songs': case 'songsOf': {
         let songs = [...pool]
-        if (s.arg?.startsWith('artist:')) songs = songs.filter(x => leadArtist(x.artist) === s.arg!.slice(7))
+        if (s.arg?.startsWith('artist:')) songs = songs.filter(x => mainArtist(x) === s.arg!.slice(7))
         if (s.arg?.startsWith('album:')) {
           const [artist, album] = s.arg.slice(6).split('|')
-          songs = songs.filter(x => leadArtist(x.artist) === artist && (x.album || t('podUnknown')) === album)
+          songs = songs.filter(x => mainArtist(x) === artist && (x.album || t('podUnknown')) === album)
         }
         songs.sort(by(x => x.title))
         if (!songs.length) return [{ label: t('podNoMusic'), dim: true }]
-        return songs.map((x, i) => ({ label: x.title, right: s.id === 'songs' ? leadArtist(x.artist) : '', go: () => playList(songs, i) }))
+        return songs.map((x, i) => ({ label: x.title, right: s.id === 'songs' ? mainArtist(x) : '', go: () => playList(songs, i) }))
       }
       case 'picks': return [
         { label: `↻ ${t('forYouMore')}`, go: () => loadPicks(true) },
@@ -237,7 +243,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           ...(!syncing && p.online && missing.length ? [{ label: t('podSaveAll', { n: missing.length }), go: () => save(missing) }] : []),
           ...(!syncing && stored.length ? [{ label: t('podRemoveAll'), more: true, go: () => list('clearSaved', t('podRemoveAll')) }] : []),
           ...(st ? [{ label: t('used', { s: mb(st.usage) }), right: st.quota ? `${t('free')} ${mb(Math.max(0, st.quota - st.usage))}` : '', dim: true }] : []),
-          ...(stored.length ? stored.map(x => ({ label: x.title, right: leadArtist(x.artist), more: true, go: () => list('savedSong', x.title, x.id) }))
+          ...(stored.length ? stored.map(x => ({ label: x.title, right: mainArtist(x), more: true, go: () => list('savedSong', x.title, x.id) }))
             : [{ label: t('podNothingSaved'), dim: true }]),
         ]
       }

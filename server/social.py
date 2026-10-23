@@ -10,6 +10,7 @@ import time
 
 from fastapi import HTTPException
 
+import artists
 import library as lib
 from db import conn
 from i18n import tr
@@ -163,9 +164,7 @@ def profile(viewer: dict, name: str) -> dict:
                 recent.append(dict(r))
         out["recent"] = recent[:20]
     if _allowed(show["top"], rel):
-        out["top"] = [dict(r) for r in c.execute(
-            "select artist, count(*) as n, max(thumbnail) as thumbnail from plays where user_id = ? and played_at > ? "
-            "and artist is not null and artist != '' group by artist order by n desc limit 8", (uid, time.time() - 90 * 86400))]
+        out["top"] = top_artists(uid, 8)
     songs = None
     if _allowed(show["library"], rel):
         songs = _their_songs(uid, viewer)
@@ -175,6 +174,19 @@ def profile(viewer: dict, name: str) -> dict:
         songs = songs if songs is not None else _their_songs(uid, viewer)
         out["radio"] = random.sample(songs, min(40, len(songs)))
     return out
+
+
+def top_artists(uid: int, n: int, since_days: float = 90) -> list[dict]:
+    """The artists someone played most lately, each counted once whatever the songs called them (邓丽君 = 鄧麗君)."""
+    counts: dict[str, dict] = {}
+    for r in conn().execute("select artist, thumbnail from plays where user_id = ? and played_at > ? and artist is not null "
+                            "and artist != ''", (uid, time.time() - since_days * 86400)):
+        name = artists.canonical(r["artist"])
+        if name:
+            x = counts.setdefault(name, {"artist": name, "n": 0, "thumbnail": None})
+            x["n"] += 1
+            x["thumbnail"] = x["thumbnail"] or r["thumbnail"]
+    return sorted(counts.values(), key=lambda x: -x["n"])[:n]
 
 
 def friends(viewer: dict) -> dict:

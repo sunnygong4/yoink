@@ -6,6 +6,7 @@ export type Song = {
   id: string
   title: string
   artist: string
+  artist_main?: string   // the artist's one name (邓丽君 / Teresa Teng -> 鄧麗君)
   album: string | null
   duration: number | null
   thumbnail: string | null

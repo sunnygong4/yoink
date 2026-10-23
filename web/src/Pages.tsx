@@ -105,7 +105,9 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
 }
 
 /** Library songs by this artist (any of a song's credited artists). */
-const byArtist = (songs: Song[], name: string) => songs.filter(s => flat(s.artist).includes(flat(name)) && flat(name).length > 0)
+// the artist's songs in the library: by the artist's one name (邓丽君 / Teresa Teng are 鄧麗君), or credited by name
+const byArtist = (songs: Song[], name: string) => flat(name).length > 0 ? songs.filter(s =>
+  (s.artist_main && flat(s.artist_main) === flat(name)) || flat(s.artist).includes(flat(name))) : []
 
 /** Every song the artist has in the stores, a toggle per language (鄧麗君: 国语 / 日语 / 粤语 / English / 台语). */
 function SongsByLanguage({ pageKey, byId, currentId, open, actions }: {
@@ -161,6 +163,7 @@ function SongsByLanguage({ pageKey, byId, currentId, open, actions }: {
 export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ...actions }: Common & {
   pageKey: string; onSong: (s: Song) => void
 }) {
+  const [shuffling, setShuffling] = useState(false)
   const [version, setVersion] = useState(0)   // bumps after someone uploads a picture
   const { data: a, error } = useLoad<Artist>(() => api.artist(pageKey), [pageKey, version])
   const [editing, setEditing] = useState(false)
@@ -173,6 +176,22 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
   if (error) return <p className="error pad">{error}</p>
   if (!a) return <p className="muted pad">{t('loading')}</p>
   const mine = byArtist(library, a.name).filter(s => s.status === 'ready')
+  // 随机播放: the artist's top songs in a random order; the first plays as soon as it's there, the rest queue up
+  // behind it as they're fetched
+  async function shuffleTop() {
+    const order = [...a!.top].sort(() => Math.random() - 0.5)
+    setShuffling(true)
+    let started = false
+    for (const r of order.slice(0, 12)) {
+      try {
+        if (!started) { await actions.preview(r); started = true; continue }
+        const s = await api.preview(r)
+        onSong(s)
+        actions.enqueue(s.id)
+      } catch { /* no source for this one: on to the next */ }
+    }
+    setShuffling(false)
+  }
   // their songs others added to the server (all an artist the store hardly knows may have)
   const local = (a.local ?? []).filter(s => !mine.some(m => m.id === s.id))
   const albums = a.albums.filter(x => !x.single)
@@ -187,9 +206,15 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
           {a.logo ? <img className="logo" src={a.logo} alt={a.name} />
             : <h1 className="wordmark">{a.name}</h1>}   {/* no logo anywhere: the name set as one */}
           <p>{[a.genre, a.formed && t('formed', { y: a.formed })].filter(Boolean).join(' · ')}</p>
-          {mine.length > 0 && (
-            <button className="blue" onClick={() => actions.play(mine.map(s => s.id))}><I.Play size={12} /> {t('playArtist', { n: mine.length })}</button>
-          )}
+          <div className="hero-buttons">
+            {mine.length > 0 && (
+              <button className="blue" onClick={() => actions.play(mine.map(s => s.id))}><I.Play size={12} /> {t('playArtist', { n: mine.length })}</button>
+            )}
+            {a.top.length > 0 && (
+              <button onClick={shuffleTop} disabled={shuffling} title={t('shuffleArtistHint')}>
+                <I.Shuffle size={12} /> {shuffling ? t('preparing') : t('shuffleArtist')}</button>
+            )}
+          </div>
         </div>
         <button className="edit-pics" onClick={() => setEditing(!editing)} title={t('editPictures')}>✎</button>
         {editing && (

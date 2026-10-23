@@ -980,3 +980,5 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .lang-chips .pill.pressed { background: linear-gradient(#6fa8ec, #2b67c4); color: #fff; border-color: #2457a8; text-shadow: none; }
 .lang-chips .pill.pressed .muted { color: #dce8ff; }
 .by-language .find-more { margin: 10px 12px 16px; }
+
+.hero-buttons { display: flex; gap: 8px; flex-wrap: wrap; }

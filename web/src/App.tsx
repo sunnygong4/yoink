@@ -17,7 +17,7 @@ import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
 import { type Actions, CatalogRow, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
 import EditSong from './EditSong'
-import { flat, leadArtist } from './text'
+import { flat, leadArtist, mainArtist } from './text'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -261,18 +261,18 @@ function groupAlbums(songs: Song[]): Item[] {
   const groups = new Map<string, Song[]>()
   for (const s of songs) {
     if (!s.album) continue
-    const k = `${flat(s.album)}|${flat(leadArtist(s.artist))}`
+    const k = `${flat(s.album)}|${flat(mainArtist(s))}`
     groups.set(k, [...(groups.get(k) ?? []), s])
   }
   const done = new Set<string>()
   const items: Item[] = []
   for (const s of songs) {
-    const k = s.album ? `${flat(s.album)}|${flat(leadArtist(s.artist))}` : ''
+    const k = s.album ? `${flat(s.album)}|${flat(mainArtist(s))}` : ''
     const g = k ? groups.get(k)! : []
     if (g.length < 2) { items.push({ kind: 'song', song: s }); continue }
     if (done.has(k)) continue
     done.add(k)
-    items.push({ kind: 'album', group: { key: k, album: s.album!, artist: leadArtist(s.artist), cover: s.thumbnail, songs: g } })
+    items.push({ kind: 'album', group: { key: k, album: s.album!, artist: mainArtist(s), cover: s.thumbnail, songs: g } })
   }
   return items
 }
@@ -311,7 +311,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
     }
   }
   // every album in the library (one song is enough for Cover Flow), in the list's order
-  const albumKey = (s: Song) => (s.album ? `${flat(s.album)}|${flat(leadArtist(s.artist))}` : '')
+  const albumKey = (s: Song) => (s.album ? `${flat(s.album)}|${flat(mainArtist(s))}` : '')
   const flow: FlowAlbum[] = []
   const flowSongs = new Map<string, Song[]>()
   if (view === 'albums') {
@@ -320,7 +320,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
       if (!k) continue
       if (!flowSongs.has(k)) {
         flowSongs.set(k, [])
-        flow.push({ key: k, album: s.album!, artist: leadArtist(s.artist), cover: s.thumbnail, count: 0 })
+        flow.push({ key: k, album: s.album!, artist: mainArtist(s), cover: s.thumbnail, count: 0 })
       }
       flowSongs.get(k)!.push(s)
     }
@@ -362,7 +362,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
         </td>
         <td className="c-time">{fmtTime(s.duration)}</td>
         <td className="c-artist">
-          <a onClick={e => { e.stopPropagation(); open(artistPage(leadArtist(s.artist))) }}>{s.artist}</a>
+          <a onClick={e => { e.stopPropagation(); open(artistPage(mainArtist(s))) }}>{s.artist}</a>
         </td>
         <td className="c-album">
           {s.album && <a onClick={e => { e.stopPropagation(); open(albumPage(s.artist, s.album!)) }}>{s.album}</a>}
@@ -477,7 +477,7 @@ function ArtistGrid({ songs, open, play, playable }: {
   const collator = new Intl.Collator(getLang() === 'zh' ? 'zh' : 'en', { numeric: true, sensitivity: 'base' })
   const by = new Map<string, { name: string; songs: Song[]; cover: string | null }>()
   for (const s of songs) {
-    const name = leadArtist(s.artist) || s.artist
+    const name = mainArtist(s) || s.artist
     const k = flat(name)
     const a = by.get(k) ?? { name, songs: [], cover: null }
     a.songs.push(s)

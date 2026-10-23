@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import subprocess
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from songstore import AUDIO
 
+import artists
 import auth
 import i18n
 import catalog as cat
@@ -72,9 +74,7 @@ def admin(user=Depends(auth.current_user)):
         week = c.execute("select count(*) from plays where user_id = ? and played_at > ?",
                          (u["id"], time.time() - 7 * 86400)).fetchone()[0]
         devices = [dict(d) for d in c.execute("select name, created, last_seen from devices where user_id = ?", (u["id"],))]
-        top = [dict(r) for r in c.execute(
-            "select artist, count(*) as n from plays where user_id = ? and artist is not null and artist != '' "
-            "group by artist order by n desc limit 3", (u["id"],))]
+        top = social.top_artists(u["id"], 3, since_days=3650)
         people.append({"id": u["id"], "name": u["name"], "is_admin": bool(u["is_admin"]), "created": u["created"],
                        "invited_by": u["invited_by"], "songs": n_songs, "plays": plays[0], "last_played": plays[1],
                        "smart_plays": plays[2] or 0, "plays_week": week, "devices": devices, "top_artists": top})
@@ -765,6 +765,19 @@ async def events(req: Request, _=Depends(auth.current_user)):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------- every artist on the server: their names (鄧麗君 = 邓丽君 = Teresa Teng), learnt in the background ----------
+
+def _learn_artists():
+    time.sleep(30)   # after start-up's own work
+    while True:
+        names = sorted({artists.lead(lib.view(d)["artist"]) for d in lib.on_server()} - {""})
+        artists.learn(names, lambda n: pages.artist(n, "en"))
+        time.sleep(6 * 3600)
+
+
+threading.Thread(target=_learn_artists, daemon=True).start()
 
 
 # ---------- web app ----------

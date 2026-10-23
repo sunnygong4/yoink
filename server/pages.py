@@ -17,6 +17,7 @@ import httpx
 from songstore.keys import flat, norm
 
 import catalog
+import artists
 from db import DATA, conn
 
 _client = httpx.Client(timeout=10, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
@@ -119,7 +120,11 @@ def _lang_of(t: dict) -> str:
 
 
 def artist_songs(name: str) -> dict:
-    return _cached(("songs", flat(name)), lambda: _artist_songs(name))
+    name = artists.canonical(name) or name
+    a = _cached(("songs", flat(name)), lambda: _artist_songs(name))
+    # the stores' own spellings (テレサ・テン): tracks filed under the artist's own id, not a duet's "X & Y"
+    artists.remember(name, sorted({s["artist"] for s in a["songs"] if not artists.is_group_credit(s["artist"])}))
+    return a
 
 
 def _artist_songs(name: str) -> dict:
@@ -289,11 +294,16 @@ def _wikipedia(lang: str, title: str | None) -> str | None:
 
 
 def artist(name: str, lang: str) -> dict:
+    name = artists.canonical(name) or name   # 邓丽君 / Teresa Teng / 鄧麗君: one page
     key = ("artist", flat(name))
     hit = _cache_get(key)
     if hit and not hit[1]["photo"] and time.time() - hit[0] > INCOMPLETE_TTL:
         _cache_drop(key)
     a = dict(_cached(key, lambda: _artist(name)))
+    # the name asked for is the artist's only when the page agrees: the same name, or one NetEase / Wikidata list
+    # (the store's search falls back to its first hit, which can be someone else)
+    confirmed = [n for n in [a["name"], *(a.get("aliases") or [])] if _same(n, name)]
+    artists.remember(a["name"], [*(a.get("aliases") or []), *([name] if confirmed else [])])
     bios = a.pop("bios")
     a["bio"] = (bios.get("zh") if lang == "zh" else None) or bios.get("en")
     return {**a, **overrides(a["name"])}

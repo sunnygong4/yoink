@@ -26,6 +26,7 @@ from songstore import AUDIO, artist_title, open_store, work_key
 from songstore.identify import identify
 from songstore.keys import same_length, split_title
 
+import artists
 import catalog
 import search as se
 from db import DATA, conn
@@ -49,6 +50,7 @@ def view(doc: dict) -> dict:
         "id": doc["id"],
         "title": title or doc.get("title") or doc["id"],
         "artist": artist or doc.get("channel") or "",
+        "artist_main": artists.canonical(artist or doc.get("channel") or ""),   # 邓丽君 / Teresa Teng -> 鄧麗君
         "album": doc.get("album"),
         "duration": doc.get("duration"),
         "thumbnail": doc.get("artwork") or doc.get("thumbnail"),
@@ -229,12 +231,12 @@ def local_search(q: str, user: dict, skip: set[str], limit: int = 8) -> list[dic
 
 def by_artist(names: list[str], user: dict) -> list[dict]:
     """The artist's songs on the server (their page lists them, for artists the store catalog hardly knows)."""
-    want = {catalog.flat(catalog.lead_artist(n)) for n in names if n}
+    want = {artists.key(n) for n in names if n}
     mine = owned(user)
     out, seen = [], set()
     for d in on_server():
         v = view(d)
-        if not v["artist"] or catalog.flat(catalog.lead_artist(v["artist"])) not in want:
+        if not v["artist"] or artists.key(v["artist"]) not in want:
             continue
         k = work_key(d) or d["id"]
         if k not in seen:
