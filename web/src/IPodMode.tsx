@@ -438,16 +438,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     </>
   )
 
-  // the iPod classic's menus: the list on the left, album covers drifting by on the right
-  const split = top.kind === 'list' && (top.id === 'root' || top.id === 'music')
-  const covers = [...new Set(pool.map(x => x.thumbnail).filter(Boolean) as string[])]
-
   let view: React.ReactNode
-  if (top.kind === 'list') {
-    view = split
-      ? <div className="pod-split"><div className="pod-half">{listView(current, top.sel, top.top, rows)}</div><CoverPane covers={covers} /></div>
-      : listView(current, top.sel, top.top, rows)
-  }
+  if (top.kind === 'list') view = listView(current, top.sel, top.top, rows)
   else if (top.kind === 'search') {
     view = <>
       <form className="pod-search" onSubmit={e => { e.preventDefault(); runSearch(query) }}>
@@ -507,19 +499,3 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   )
 }
 
-/** The right half of the menus: one cover after another, slowly zooming and drifting (like the iPod's). */
-function CoverPane({ covers }: { covers: string[] }) {
-  const [i, setI] = useState(() => Math.floor(Math.random() * 1000))
-  useEffect(() => {
-    if (covers.length < 2) return
-    const timer = setInterval(() => setI(n => n + 1), 6000)
-    return () => clearInterval(timer)
-  }, [covers.length])
-  if (!covers.length) return <div className="pod-covers empty">♫</div>
-  const now = covers[i % covers.length]
-  return (
-    <div className="pod-covers">
-      <img key={i} src={now} alt="" className={i % 2 ? 'drift-a' : 'drift-b'} onError={e => { e.currentTarget.style.display = 'none' }} />
-    </div>
-  )
-}

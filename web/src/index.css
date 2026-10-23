@@ -839,20 +839,6 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .pod-stage:not(.pod-full) .pod { transform-origin: center; }
 .pod.pod-full .pod-screen { margin-top: max(0px, calc(env(safe-area-inset-top) * .3)); }
 
-/* split-screen menus */
-.pod-split { position: absolute; inset: 0; display: flex; }
-.pod-half { position: relative; width: 50%; height: 100%; border-right: 1px solid #b9bfc8; box-shadow: 1px 0 3px rgba(0, 0, 0, .15); z-index: 1; background: #fff; }
-.pod-half .pod-list li .r { display: none; }
-.pod-covers { position: relative; flex: 1; overflow: hidden; background: linear-gradient(#5b6270, #23262c); }
-.pod-covers::before { content: '♫'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, .35); font-size: 40px; }
-.pod-covers.empty { display: flex; align-items: center; justify-content: center; color: #666; font-size: 40px; background: linear-gradient(#444, #111); }
-.pod-covers img { position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover; animation: pod-fade 6s linear both; }
-.pod-covers img.drift-a { animation-name: pod-fade, pod-drift-a; animation-duration: 6s, 6s; }
-.pod-covers img.drift-b { animation-name: pod-fade, pod-drift-b; animation-duration: 6s, 6s; }
-@keyframes pod-fade { 0% { opacity: 0 } 12% { opacity: 1 } 88% { opacity: 1 } 100% { opacity: .2 } }
-@keyframes pod-drift-a { from { transform: scale(1) translate(4%, 3%) } to { transform: scale(1.12) translate(-4%, -3%) } }
-@keyframes pod-drift-b { from { transform: scale(1.12) translate(-3%, 4%) } to { transform: scale(1) translate(4%, -2%) } }
-
 /* a little more like the real screen: lighter header gloss, crisper rows */
 .pod-bar { background: linear-gradient(#fefefe, #e9ecf0 55%, #d3d8df); }
 .pod-list li { letter-spacing: -.01em; }
