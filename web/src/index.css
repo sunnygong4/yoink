@@ -842,7 +842,7 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 /* a little more like the real screen: lighter header gloss, crisper rows */
 .pod-bar { background: linear-gradient(#fefefe, #e9ecf0 55%, #d3d8df); }
 .pod-list li { letter-spacing: -.01em; }
-.pod-np .art { width: 92px; height: 92px; }
+.pod-np .art { width: 80px; height: 80px; -webkit-box-reflect: below 1px linear-gradient(transparent 82%, rgba(255, 255, 255, .4)); }
 
 /* the iPod is placed by hand: centred at the top (a phone) or in the middle (anything wider) */
 .pod-stage { display: block; padding: 0; }
@@ -859,3 +859,5 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .at-results li { margin-bottom: 8px; }
 .at-results li.ok b { color: #1a8a2a; }
 .at-results li.bad b { color: #c0262d; }
+
+.pod-wheel .center { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }

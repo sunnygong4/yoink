@@ -250,6 +250,18 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           { label: mb(x.size || 0), dim: true },
         ]
       }
+      case 'nowMenu': {   // long press on the centre button while a song plays
+        if (!song) return [{ label: t('podNothing'), dim: true }]
+        const upNext = q.ids[q.ids.indexOf(song.id) + 1]
+        const nextSong = upNext ? p.library.find(x => x.id === upNext) : undefined
+        return [
+          { label: `✨ ${t('podSmartNext')}`, dim: !p.online, go: () => p.online && smartNext() },
+          { label: t('autoplay'), right: q.smart ? t('podOn') : t('podOff'), go: q.toggleSmart },
+          ...(song.radio ? [{ label: `♥ ${t('keep')}`, go: () => api.keep(song.id).then(p.onSong) }] : []),
+          ...(nextSong ? [{ label: t('podUpNext'), right: nextSong.title, dim: true }] : []),
+          { label: t('podCancel'), go: () => setStack(st => st.slice(0, -1)) },
+        ]
+      }
       case 'clearSaved': {
         const n = p.phone.status?.songs.length ?? 0
         return [
@@ -357,6 +369,39 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     if (stack.length > 1) setStack(st => st.slice(0, -1))
   }
   const playPause = () => { tick(); tr.toggle() }
+
+  // ✨ as the next song: a smart pick like this one, queued right after it
+  async function smartNext() {
+    if (!song) return
+    setBusy(t('podSmartNext'))
+    try {
+      const s = await api.radio(song.id, [...q.played, ...q.ids])
+      p.onSong(s)
+      q.playNext(s.id)
+      setStack(st => (st[st.length - 1].kind === 'list' ? st.slice(0, -1) : st))
+    } catch (e) { message(t('podError'), (e as Error).message) }
+    setBusy('')
+  }
+
+  // holding the centre button (Now Playing): the song's options, like the iPod's
+  const hold = useRef<{ timer: number; fired: boolean } | null>(null)
+  const centreDown = () => {
+    if (hold.current) clearTimeout(hold.current.timer)
+    const h = { timer: 0, fired: false }
+    h.timer = window.setTimeout(() => {
+      if (stack[stack.length - 1].kind !== 'now' || !song) return
+      h.fired = true
+      buzz()
+      list('nowMenu', song.title)
+    }, 550)
+    hold.current = h
+  }
+  const centreUp = () => { if (hold.current) clearTimeout(hold.current.timer) }
+  const centreClick = () => {
+    const fired = hold.current?.fired
+    hold.current = null
+    if (!fired) select()
+  }
   const next = () => { tick(); tr.next() }
   const prev = () => { tick(); tr.prev() }
 
@@ -494,7 +539,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           <span className="pod-label w-prev">⏮︎</span>
           <span className="pod-label w-next">⏭︎</span>
           <span className="pod-label w-play">⏯︎</span>
-          <button className="center" onClick={() => select()} aria-label="Select" />
+          <button className="center" onPointerDown={centreDown} onPointerUp={centreUp} onPointerLeave={centreUp}
+            onContextMenu={e => e.preventDefault()} onClick={centreClick} aria-label="Select" />
         </div>
       </div>
     </div>
