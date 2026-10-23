@@ -10,8 +10,16 @@ export const IPodPicture = ({ small }: { small?: boolean }) => (
   <div className={'ipod-pic' + (small ? ' small' : '')} aria-hidden="true"><div className="ip-screen" /><div className="ip-wheel"><i /></div></div>
 )
 
-/** iTunes' device page: the iPod's summary, and which songs go on it. */
-export default function DevicePage({ ipod, user, library }: { ipod: IPod; user: User; library: Song[] }) {
+/** An iPhone, in CSS (this phone, as a device). */
+export const PhonePicture = ({ small }: { small?: boolean }) => (
+  <div className={'phone-pic' + (small ? ' small' : '')} aria-hidden="true"><div className="ph-screen"><span>♫</span></div></div>
+)
+
+const standalone = () => matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
+const iOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
+/** iTunes' device page: the iPod's (or this phone's) summary, and which songs go on it. */
+export default function DevicePage({ ipod, user, library, phone }: { ipod: IPod; user: User; library: Song[]; phone?: boolean }) {
   const { present, status, progress } = ipod
   const [name, setName] = useState(t('defaultIpodName', { name: user.name }))
   const [checked, setChecked] = useState<Set<string> | null>(null)   // null: as on the device
@@ -19,7 +27,8 @@ export default function DevicePage({ ipod, user, library }: { ipod: IPod; user: 
   const [error, setError] = useState('')
 
   const onDevice = useMemo(() => new Set(status?.songs.map(s => s.id) ?? []), [status])
-  useEffect(() => { setChecked(null) }, [status])
+  const onDeviceKey = [...onDevice].sort().join()
+  useEffect(() => { setChecked(null) }, [onDeviceKey])   // what's on it changed (a sync): start from that
   const want = checked ?? onDevice
   const ready = library.filter(s => s.status === 'ready')
   // songs on the iPod that aren't in the library (any more) still show, so they can come off
@@ -48,10 +57,11 @@ export default function DevicePage({ ipod, user, library }: { ipod: IPod; user: 
   async function sync() {
     setError('')
     try {
-      await ipod.sync(toAdd.map(s => ({ id: s.id, title: s.title, artist: s.artist, album: s.album, duration: s.duration, thumbnail: s.thumbnail })), toRemove)
+      await ipod.sync(toAdd.map(s => phone ? s : ({ id: s.id, title: s.title, artist: s.artist, album: s.album, duration: s.duration, thumbnail: s.thumbnail })), toRemove)
     } catch (e) { setError((e as Error).message) }
   }
 
+  if (phone && !status) return null   // a moment while it looks at what's saved
   if (!present) {
     return (
       <div className="page device-page">
@@ -89,12 +99,13 @@ export default function DevicePage({ ipod, user, library }: { ipod: IPod; user: 
   return (
     <div className="page device-page">
       <div className="device-summary">
-        <IPodPicture />
+        {phone ? <PhonePicture /> : <IPodPicture />}
         <div className="ds-text">
           <h1>{status.name}</h1>
           <p>{t('ipodSongs', { n: status.songs.length })} · {t('used', { s: mb(status.usage) })}</p>
-          <p className="muted">{t('worksOffline')}</p>
-          <button onClick={disconnect}>{t('disconnect')}</button>
+          <p className="muted">{phone ? t('phoneOffline') : t('worksOffline')}</p>
+          {phone && !standalone() && <p className="muted install-hint">{iOS() ? t('installIos') : t('installOther')}</p>}
+          {!phone && <button onClick={disconnect}>{t('disconnect')}</button>}
         </div>
       </div>
       <div className="capacity">
@@ -124,7 +135,7 @@ export default function DevicePage({ ipod, user, library }: { ipod: IPod; user: 
       )}
       {error && <p className="error pad">{error}</p>}
       <table className="songlist">
-        <thead><tr><th className="c-check" /><th>{t('colName')}</th><th className="c-time">{t('colTime')}</th><th className="c-artist">{t('colArtist')}</th><th className="c-album">{t('colAlbum')}</th><th className="c-by">{t('onIpod')}</th></tr></thead>
+        <thead><tr><th className="c-check" /><th>{t('colName')}</th><th className="c-time">{t('colTime')}</th><th className="c-artist">{t('colArtist')}</th><th className="c-album">{t('colAlbum')}</th><th className="c-by">{phone ? t('onPhone') : t('onIpod')}</th></tr></thead>
         <tbody>
           {rows.map(r => (
             <tr key={r.id} onClick={() => !busy && toggle(r.id)} className={r.gone ? 'pending' : ''}>

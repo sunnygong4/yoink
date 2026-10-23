@@ -8,17 +8,20 @@ import NowPlaying from './NowPlaying'
 import { albumPage, artistPage, type Page } from './Pages'
 import QueueDrawer from './QueueDrawer'
 import type { Queue } from './queue'
+import { savedAudio } from './offline'
 import { leadArtist } from './text'
 
 const VOLUME = 'yoinker.volume'
 const SMART_AHEAD = 40   // seconds before the end of the last song: ask for a recommendation (it downloads meanwhile)
 
 /** The audio element, the bar at the bottom, the queue drawer and the full-screen view. */
-export default function Player({ q, byId, onSong, open }: {
+export default function Player({ q, byId, onSong, open, saved, online }: {
   q: Queue
   byId: Map<string, Song>
   onSong: (s: Song) => void   // a song the library list doesn't have yet (a recommendation)
   open: (p: Page) => void     // an artist / album page
+  saved: Set<string>          // songs saved on this phone: they play from it, with or without a connection
+  online: boolean
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -37,16 +40,32 @@ export default function Player({ q, byId, onSong, open }: {
   const lyrics = useLyrics(song)
   const isLast = q.pos >= q.ids.length - 1
 
-  // a new song (or the current one finished downloading): load it
+  // a new song (or the current one finished downloading): load it, from the phone when it's saved there
+  const blob = useRef<string | null>(null)
+  const savedNow = useRef(saved)
+  savedNow.current = saved
   useEffect(() => {
     const a = audio.current
     if (!a) return
     if (!song || !ready) { a.removeAttribute('src'); a.load(); setTime(0); setDuration(song?.duration || 0); return }
-    a.src = api.audioUrl(song.id)
-    setTime(0)
-    reported.current = null
-    if (q.autoplay) a.play().catch(() => setPlaying(false))
+    let live = true
+    // (only when the song changes: saving the song that's playing doesn't restart it)
+    ;(savedNow.current.has(song.id) ? savedAudio(song.id) : Promise.resolve(null)).then(local => {
+      if (!live) return
+      if (blob.current) URL.revokeObjectURL(blob.current)
+      blob.current = local
+      a.src = local ?? api.audioUrl(song.id)
+      setTime(0)
+      reported.current = null
+      if (q.autoplay) a.play().catch(() => setPlaying(false))
+    })
+    return () => { live = false }
   }, [song?.id, ready])
+
+  // offline and this song isn't on the phone: on to the next one that is
+  const failed = useCallback(() => {
+    if (!online && song && !saved.has(song.id)) q.next()
+  }, [online, song, saved, q])
 
   useEffect(() => {
     if (audio.current) audio.current.volume = volume
@@ -123,7 +142,22 @@ export default function Player({ q, byId, onSong, open }: {
     ms.setActionHandler('previoustrack', prev)
     ms.setActionHandler('nexttrack', next)
     ms.setActionHandler('seekto', d => { if (d.seekTime != null) seek(d.seekTime) })
+    ms.setActionHandler('seekbackward', d => seek(Math.max(0, (audio.current?.currentTime ?? 0) - (d.seekOffset || 10))))
+    ms.setActionHandler('seekforward', d => seek((audio.current?.currentTime ?? 0) + (d.seekOffset || 10)))
   }, [song, prev, next, seek])
+
+  // the lock screen's progress bar and play / pause button
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    navigator.mediaSession.playbackState = song ? (playing ? 'playing' : 'paused') : 'none'
+  }, [song, playing])
+  const lastPos = useRef(0)
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !duration || !isFinite(duration)) return
+    if (Math.abs(time - lastPos.current) < 5 && time > 1) return   // every few seconds is enough: it keeps counting
+    lastPos.current = time
+    try { navigator.mediaSession.setPositionState({ duration, position: Math.min(time, duration), playbackRate: 1 }) } catch { /* old Safari */ }
+  }, [time, duration])
 
   // space bar: play / pause (unless typing)
   useEffect(() => {
@@ -144,7 +178,7 @@ export default function Player({ q, byId, onSong, open }: {
         onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
         onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
         onDurationChange={e => setDuration(e.currentTarget.duration)}
-        onEnded={ended} />
+        onEnded={ended} onError={failed} />
 
       <header className="toolbar">
         <div className="transport">

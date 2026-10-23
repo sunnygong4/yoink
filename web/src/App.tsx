@@ -3,12 +3,13 @@ import { api, fmtTime, type CatalogResults, type CatalogSong, type Song, type Us
 import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
-import DevicePage, { IPodPicture } from './Device'
+import DevicePage, { IPodPicture, PhonePicture } from './Device'
 import Import from './Import'
 import Login from './Login'
 import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, urlFor } from './Pages'
 import Player from './Player'
 import { useIPod } from './ipod'
+import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
 import { type Actions, CatalogRow, SongStatus } from './Rows'
 import { flat, leadArtist } from './text'
@@ -23,7 +24,8 @@ export default function App() {
 
   if (user === undefined) return null
   if (!user) return <Login onDone={setUser} />
-  return <Main user={user} onLogout={() => api.logout().finally(() => setUser(null))} />
+  // the last library list is kept for offline use: not for whoever logs in next
+  return <Main user={user} onLogout={() => api.logout().finally(() => { caches?.delete('yoinker-api-v1').catch(() => {}); setUser(null) })} />
 }
 
 // Laid out like iTunes: the player across the top, a source list on the left, the page on the right.
@@ -44,6 +46,9 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [importing, setImporting] = useState(false)
   const q = useQueue()
   const ipod = useIPod()
+  const phone = useLocalDevice(t('thisDevice'))
+  const online = useOnline()
+  const saved = useMemo(() => new Set(phone.status?.songs.map(s => s.id) ?? []), [phone.status])
   const content = useRef<HTMLElement>(null)
   useEffect(() => { content.current?.scrollTo(0, 0) }, [page])
 
@@ -99,7 +104,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   return (
     <div className="itunes">
-      <Player q={q} byId={byId} onSong={onSong} open={open} />
+      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} />
       <div className="frame">
         <aside className="sourcelist">
           <h4>{t('libraryHeading')}</h4>
@@ -116,6 +121,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <IPodPicture small /> <span>{ipod.status?.paired ? ipod.status.name : 'iPod'}</span>
             {ipod.status?.paired && <em>{ipod.status.songs.length}</em>}
           </button>
+          {canSave && (
+            <button className={page.kind === 'phone' ? 'on' : ''} onClick={() => go({ kind: 'phone' })}>
+              <PhonePicture small /> <span>{t('thisDevice')}</span> <em>{saved.size || ''}</em>
+            </button>
+          )}
           <h4>{user.name}</h4>
           <button className={page.kind === 'history' ? 'on' : ''} onClick={() => go({ kind: 'history' })}>
             <span className="glyph">◷</span> <span>{t('history')}</span>
@@ -143,10 +153,12 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
               <button className="back" onClick={back}><I.Prev size={10} /> {t('back')}</button>
             </div>
           )}
-          {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
+          {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
+          {page.kind === 'library' && <Library songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search byId={byId} currentId={q.current} open={open} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
+          {page.kind === 'phone' && <DevicePage ipod={phone} user={user} library={library} phone />}
           {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} {...common} />}
           {page.kind === 'album' && <AlbumPage key={page.key} pageKey={page.key} {...common} />}
         </main>
@@ -155,6 +167,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
         <nav className="seg mobile-tabs">
           <button className={page.kind === 'library' ? 'on' : ''} onClick={() => go({ kind: 'library' })}>{t('library')}</button>
           <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>{t('find')}</button>
+          {canSave && <button className={page.kind === 'phone' ? 'on' : ''} onClick={() => go({ kind: 'phone' })}>{t('thisDevice')}</button>}
           <button onClick={() => { setTheme(getTheme() === 'classic' ? 'yoinker' : 'classic'); rerender(n => n + 1) }}>◐</button>
         </nav>
         <span className="status-text">{t('status', { n: ready.length, m: minutes })}</span>
@@ -215,9 +228,12 @@ function groupAlbums(songs: Song[]): Item[] {
   return items
 }
 
-function Library({ songs, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
-  songs: Song[]; currentId?: string; open: (p: Page) => void; onImport: () => void; onRemove: (id: string) => void
+function Library({ songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+  songs: Song[]; saved: Set<string>; online: boolean
+  currentId?: string; open: (p: Page) => void; onImport: () => void; onRemove: (id: string) => void
 }) {
+  // without a connection only the songs saved on this phone can play
+  const playable = (s: Song) => s.status === 'ready' && (online || saved.has(s.id))
   const [prefs, setPrefs] = useState(loadPrefs)
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
@@ -267,7 +283,7 @@ function Library({ songs, currentId, open, onImport, onRemove, play, playNext, e
       return c * dir
     })
   // the play order follows what's on screen
-  const order = items.flatMap(it => it.kind === 'song' ? [it.song] : it.group.songs).filter(s => s.status === 'ready').map(s => s.id)
+  const order = items.flatMap(it => it.kind === 'song' ? [it.song] : it.group.songs).filter(playable).map(s => s.id)
   const playFrom = (id: string) => play(order, Math.max(0, order.indexOf(id)))
   const touch = typeof matchMedia !== 'undefined' && matchMedia('(hover: none)').matches   // phones: a tap plays
 
@@ -280,16 +296,16 @@ function Library({ songs, currentId, open, onImport, onRemove, play, playNext, e
   const toggle = (k: string) => setExpanded(e => { const n = new Set(e); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
   const songRow = (s: Song, inAlbum = false) => {
-    const ok = s.status === 'ready'
+    const ok = playable(s)
     return (
       <tr key={s.id} className={(s.id === selected ? 'sel' : '') + (ok ? '' : ' pending') + (inAlbum ? ' in-album' : '')}
         onClick={() => { setSelected(s.id); if (touch && ok) playFrom(s.id) }}
         onDoubleClick={() => ok && playFrom(s.id)}>
         <td className="c-now">{s.id === currentId && <I.Volume size={13} />}</td>
         <td className="c-name">
-          <span className="name">{s.title}</span>
+          <span className="name">{s.title}{saved.has(s.id) && <span className="saved-mark" title={t('savedHere')}><I.Download size={10} /></span>}</span>
           <span className="sub">{s.artist}</span>
-          {!ok && <SongStatus song={s} />}
+          {s.status !== 'ready' && <SongStatus song={s} />}
         </td>
         <td className="c-time">{fmtTime(s.duration)}</td>
         <td className="c-artist">
@@ -312,7 +328,7 @@ function Library({ songs, currentId, open, onImport, onRemove, play, playNext, e
   }
 
   const albumRow = (g: Group) => {
-    const ids = g.songs.filter(s => s.status === 'ready').map(s => s.id)
+    const ids = g.songs.filter(playable).map(s => s.id)
     const isOpen = expanded.has(g.key)
     const playing = g.songs.some(s => s.id === currentId)
     return [
