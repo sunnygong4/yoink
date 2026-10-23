@@ -12,6 +12,8 @@ import { flat, leadArtist } from './text'
 export type Page =
   | { kind: 'library'; view?: 'albums' | 'artists' }   // songs when no view
   | { kind: 'admin' }   // everyone, for an admin (not linked anywhere)
+  | { kind: 'user'; name: string }   // someone's page: /usr/<name>
+  | { kind: 'friends' }
   | { kind: 'search'; q?: string }   // q: run this search when the page opens
   | { kind: 'history' }
   | { kind: 'device' }
@@ -29,6 +31,8 @@ export function urlFor(p: Page): string {
   switch (p.kind) {
     case 'library': return p.view ? `/${p.view}` : '/'
     case 'admin': return '/admin'
+    case 'user': return `/usr/${encodeURIComponent(p.name)}`
+    case 'friends': return '/friends'
     case 'search': return p.q ? `/find?${new URLSearchParams({ q: p.q })}` : '/find'
     case 'history': return '/history'
     case 'device': return '/ipod'
@@ -54,6 +58,8 @@ export function pageFromUrl(): Page {
   const [kind, a, b] = location.pathname.split('/').filter(Boolean)
   if (kind === 'albums' || kind === 'artists') return { kind: 'library', view: kind }
   if (kind === 'admin') return { kind: 'admin' }
+  if (kind === 'usr' && a) return { kind: 'user', name: decodeURIComponent(a) }
+  if (kind === 'friends') return { kind: 'friends' }
   if (kind === 'find') return { kind: 'search', q: new URLSearchParams(location.search).get('q') || undefined }
   if (kind === 'history') return { kind: 'history' }
   if (kind === 'ipod') return { kind: 'device' }

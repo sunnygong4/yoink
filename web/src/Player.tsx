@@ -170,6 +170,14 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     q.next()
   }
 
+  // friends' "playing now": what this is on (each song, play / pause), and every few minutes while it plays
+  useEffect(() => {
+    const id = song?.status === 'ready' ? song.id : null
+    const timer = setTimeout(() => api.now(id, playing).catch(() => {}), 1500)   // not for every skip
+    const beat = playing ? setInterval(() => api.now(id, true).catch(() => {}), 5 * 60 * 1000) : 0
+    return () => { clearTimeout(timer); clearInterval(beat) }
+  }, [song?.id, song?.status, playing])
+
   // lock screen / headphone controls
   useEffect(() => {
     if (!('mediaSession' in navigator) || !song) return

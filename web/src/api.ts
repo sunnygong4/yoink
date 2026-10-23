@@ -115,10 +115,10 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, body?: unknown, method?: 'DELETE'): Promise<T> {
+async function call<T>(path: string, body?: unknown, method?: 'DELETE' | 'PUT'): Promise<T> {
   const headers: Record<string, string> = { 'x-lang': getLang() }   // server messages in the UI's language
-  const r = await fetch(path, method ? { method, headers } : body === undefined ? { headers } : {
-    method: 'POST',
+  const r = await fetch(path, method === 'DELETE' ? { method, headers } : body === undefined ? { headers } : {
+    method: method ?? 'POST',
     headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
@@ -133,6 +133,13 @@ async function call<T>(path: string, body?: unknown, method?: 'DELETE'): Promise
 export const api = {
   me: () => call<User>('/api/me'),
   admin: () => call<AdminData>('/api/admin'),
+  profile: (name: string) => call<Profile>(`/api/users/${encodeURIComponent(name)}`),
+  saveProfile: (bio: string, show: Record<string, string>) => call<Profile>('/api/profile', { bio, show }, 'PUT'),
+  friends: () => call<Friends>('/api/friends'),
+  people: (q: string) => call<Person[]>(`/api/people?${new URLSearchParams({ q })}`),
+  addFriend: (name: string) => call<{ relation: Relation }>(`/api/friends/${encodeURIComponent(name)}`, {}),
+  removeFriend: (name: string) => call<{ relation: Relation }>(`/api/friends/${encodeURIComponent(name)}`, undefined, 'DELETE'),
+  now: (song_id: string | null, playing: boolean) => call('/api/now', { song_id, playing }),
   setup: () => call<{ first_user: boolean }>('/api/setup'),
   login: (name: string, password: string) => call<User>('/api/login', { name, password }),
   register: (name: string, password: string, invite: string) => call<User>('/api/register', { name, password, invite }),
@@ -204,6 +211,25 @@ export function report(event: string, detail: Record<string, unknown> = {}) {
       { type: 'application/json' }))
   } catch { /* nothing to report with */ }
 }
+
+// people
+export type Relation = 'self' | 'friends' | 'sent' | 'received' | 'none'
+export type NowPlaying = { song: Song; playing: boolean; at: number }
+export type Profile = {
+  name: string; joined: number; bio: string; relation: Relation; counts: { songs: number; friends: number }
+  show: Record<string, string> | null   // only on your own page: who sees what
+  now?: NowPlaying | null
+  recent?: { song_id: string; played_at: number; radio: number; title: string; artist: string; album: string | null; thumbnail: string | null }[]
+  top?: { artist: string; n: number; thumbnail: string | null }[]
+  library?: Song[]
+  radio?: Song[]
+}
+export type Friends = {
+  friends: { name: string; since: number; now: NowPlaying | null; last_played: number | null }[]
+  incoming: { name: string; at: number }[]
+  outgoing: { name: string; at: number }[]
+}
+export type Person = { name: string; relation: Relation }
 
 // /admin
 export type AdminData = {

@@ -19,6 +19,7 @@ import catalog as cat
 import library as lib
 import pages
 import search as se
+import social
 
 app = FastAPI(title="Yoinker")
 
@@ -417,6 +418,55 @@ async def client_log(req: Request, user=Depends(auth.current_user)):
 
 class Play(BaseModel):
     song_id: str
+
+
+# ---------- people: pages, friends, playing now ----------
+
+class NowPlaying(BaseModel):
+    song_id: str | None = None
+    playing: bool = False
+
+
+@app.post("/api/now")
+def now(body: NowPlaying, user=Depends(auth.current_user)):
+    """The player says what it's on (song changes, play / pause), for friends' "playing now"."""
+    social.set_now(user, body.song_id, body.playing)
+    return {"ok": True}
+
+
+@app.get("/api/users/{name}")
+def user_page(name: str, user=Depends(auth.current_user)):
+    return social.profile(user, name)
+
+
+class ProfileSettings(BaseModel):
+    bio: str = ""
+    show: dict[str, str] = {}
+
+
+@app.put("/api/profile")
+def save_profile(body: ProfileSettings, user=Depends(auth.current_user)):
+    return social.save_settings(user["id"], body.bio, body.show)
+
+
+@app.get("/api/friends")
+def friends(user=Depends(auth.current_user)):
+    return social.friends(user)
+
+
+@app.get("/api/people")
+def people(q: str = "", user=Depends(auth.current_user)):
+    return social.people(user, q)
+
+
+@app.post("/api/friends/{name}")
+def add_friend(name: str, user=Depends(auth.current_user)):
+    return {"relation": social.add_friend(user, name)}
+
+
+@app.delete("/api/friends/{name}")
+def remove_friend(name: str, user=Depends(auth.current_user)):
+    return {"relation": social.remove_friend(user, name)}
 
 
 @app.post("/api/plays")

@@ -5,6 +5,7 @@ import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import DevicePage, { IPodPicture, PhonePicture } from './Device'
 import AdminPage from './Admin'
+import { FriendsPage, ProfilePage, userPage } from './People'
 import AudioTest from './AudioTest'
 import Import from './Import'
 import Login from './Login'
@@ -54,6 +55,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   useEffect(() => { content.current?.scrollTo(0, 0) }, [page])
 
   const refresh = useCallback(() => { api.songs().then(setSongs).catch(() => {}) }, [])
+  // friend requests waiting (the sidebar's badge)
+  const [requests, setRequests] = useState(0)
+  const loadFriends = useCallback(() => { api.friends().then(f => setRequests(f.incoming.length)).catch(() => {}) }, [])
+  useEffect(() => { loadFriends(); const timer = setInterval(loadFriends, 60000); return () => clearInterval(timer) }, [loadFriends])
 
   // live updates: download progress, songs other people added
   useEffect(() => {
@@ -131,6 +136,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <button className={page.kind === 'library' && page.view === 'artists' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'artists' })}>
             <span className="glyph">♪</span> <span>{t('viewArtists')}</span>
           </button>
+          <h4>{t('friendsHeading')}</h4>
+          <button className={page.kind === 'friends' ? 'on' : ''} onClick={() => go({ kind: 'friends' })}>
+            <span className="glyph">☺</span> <span>{t('friendsTitle')}</span> {requests > 0 && <em className="alert">{requests}</em>}
+          </button>
+          <button className={page.kind === 'user' && page.name.toLowerCase() === user.name.toLowerCase() ? 'on' : ''} onClick={() => go(userPage(user.name))}>
+            <span className="glyph">◍</span> <span>{t('myPage')}</span>
+          </button>
           <h4>{t('storeHeading')}</h4>
           <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>
             <I.Search size={15} /> <span>{t('find')}</span>
@@ -172,6 +184,8 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             </div>
           )}
           {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
+          {page.kind === 'user' && <ProfilePage key={page.name} name={page.name} me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
+          {page.kind === 'friends' && <FriendsPage me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'admin' && (user.is_admin ? <AdminPage /> : <p className="pad hint">{t('notFound')}</p>)}
           {page.kind === 'library' && <Library view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search key={page.q ?? ''} initial={page.q} byId={byId} currentId={q.current} open={open} {...actions} />}

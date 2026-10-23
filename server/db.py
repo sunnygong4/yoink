@@ -55,6 +55,21 @@ create table if not exists devices (
     created real not null,
     last_seen real
 );
+-- friends: one row per pair (a < b); accepted is null while the request waits
+create table if not exists friends (
+    a integer not null references users(id),
+    b integer not null references users(id),
+    requested_by integer not null references users(id),
+    created real not null,
+    accepted real,
+    primary key (a, b)
+);
+-- what each person's page shows, and to whom ({"now": "friends", ...}: everyone / friends / nobody)
+create table if not exists profiles (
+    user_id integer primary key references users(id),
+    bio text,
+    show text
+);
 create table if not exists sessions (
     token text primary key,
     user_id integer not null references users(id),
