@@ -982,3 +982,5 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .by-language .find-more { margin: 10px 12px 16px; }
 
 .hero-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.source-foot .lang-switch { font-size: 10px; font-weight: bold; letter-spacing: .02em; }

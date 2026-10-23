@@ -172,7 +172,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             </button>
             <button onClick={invite} title={t('invite')}><I.Plus size={13} /></button>
             <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }} title={t('languageHint')}>
-              <span className="glyph">文</span>
+              <span className="glyph lang-switch">{getLang() === 'zh' ? 'ENG' : '中'}</span>   {/* the language it switches to */}
             </button>
             <button onClick={onLogout} title={t('logout')}><I.Close size={12} /></button>
           </div>
