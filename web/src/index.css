@@ -748,3 +748,83 @@ body.no-scroll .drawer { top: 0; bottom: 0; }
 .install-hint { max-width: 460px; }
 .saved-mark { display: inline-flex; margin-left: 6px; color: #8a93a0; vertical-align: -1px; }
 .notice.offline { background: #fff6d6; border-color: #e3c766; }
+
+/* ---------- iPod mode (/iphone): an iPod classic filling the phone ---------- */
+html.pod-page, html.pod-page body { height: 100%; overflow: hidden; overscroll-behavior: none; background: #1c1d20; }
+html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.pod-stage { position: fixed; inset: 0; display: flex; justify-content: center; align-items: flex-start;
+  padding-top: max(6px, env(safe-area-inset-top)); background: radial-gradient(circle at 50% 30%, #3a3c41, #141517); }
+.pod {
+  width: 256px; border-radius: 26px; padding: 16px 16px 0; position: relative; transform-origin: top center; flex: none;
+  font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .05) 0 1px, rgba(0, 0, 0, .02) 1px 2px),
+    linear-gradient(160deg, #f4f5f7, #d5d8dc 45%, #c2c6cb);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .9), inset 0 -2px 4px rgba(0, 0, 0, .15), 0 2px 10px rgba(0, 0, 0, .6);
+}
+.pod.black {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 1px, rgba(0, 0, 0, .04) 1px 2px),
+    linear-gradient(160deg, #3a3b3e, #1d1e20 50%, #121314);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .25), 0 2px 10px rgba(0, 0, 0, .7);
+}
+.pod-screen { width: 224px; border-radius: 4px; overflow: hidden; background: #fff; position: relative;
+  border: 2px solid #1b1b1b; box-shadow: 0 0 0 1px rgba(255, 255, 255, .6), inset 0 0 6px rgba(0, 0, 0, .15); }
+.pod-bar { height: 18px; display: flex; align-items: center; padding: 0 5px; gap: 4px; background: linear-gradient(#fdfdfd, #d9dde3);
+  border-bottom: 1px solid #9aa2ad; font-size: 11px; font-weight: bold; color: #1b1b1b; }
+.pod-bar .title { flex: 1; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pod-bar .state { width: 14px; font-size: 9px; color: #3a6fd8; }
+.pod-bar .net { font-size: 9px; color: #c33; }
+.pod-bar .battery { width: 20px; height: 9px; border: 1px solid #555; border-radius: 2px; padding: 1px; position: relative; }
+.pod-bar .battery::after { content: ""; position: absolute; right: -3px; top: 2px; width: 2px; height: 3px; background: #555; }
+.pod-bar .battery i { display: block; height: 100%; width: 85%; background: linear-gradient(#9de07a, #4aa52a); }
+.pod-view { position: absolute; inset: 18px 0 0 0; overflow: hidden; }
+.pod-list { margin: 0; padding: 0; list-style: none; }
+.pod-list li { height: 18.5px; line-height: 18.5px; padding: 0 16px 0 6px; font-size: 13px; font-weight: bold; color: #111;
+  position: relative; display: flex; gap: 6px; cursor: pointer; }
+.pod-list li .l { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pod-list li .r { flex: none; max-width: 45%; font-weight: normal; font-size: 11px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pod-list li.more::after { content: "›"; position: absolute; right: 6px; font-weight: bold; }
+.pod-list li.sel { color: #fff; background: linear-gradient(#6fa8ec, #3b7ad8 55%, #2b67c4); }
+.pod-list li.sel .r { color: #e6efff; }
+.pod-list li.dim { color: #8a8a8a; font-weight: normal; }
+.pod-scroll { position: absolute; right: 0; top: 0; bottom: 0; width: 5px; background: #e6e6e6; border-left: 1px solid #c8c8c8; }
+.pod-scroll i { position: absolute; left: 0; right: 0; background: linear-gradient(90deg, #6fa8ec, #2b67c4); border-radius: 2px; }
+.pod-search { padding: 4px 5px; border-bottom: 1px solid #c8c8c8; background: #f2f3f5; height: 37px; }
+.pod-search input { width: 100%; height: 28px; border: 1px solid #8e96a3; border-radius: 14px; padding: 0 10px;
+  font-size: 16px; transform: scale(.75); transform-origin: left center; width: 133%; outline: none; }
+.pod-under { position: absolute; inset: 37px 0 0 0; }
+.pod-message { padding: 18px 12px; text-align: center; font-size: 12px; color: #333; line-height: 1.45; }
+.pod-message b { display: block; font-size: 14px; margin-bottom: 6px; }
+.pod-np { padding: 6px 8px; font-size: 11px; color: #111; height: 100%; position: relative; }
+.pod-np .pos { font-size: 10px; color: #333; margin-bottom: 6px; height: 12px; }
+.pod-np .modes { position: absolute; right: 8px; top: 6px; font-size: 10px; color: #3a6fd8; }
+.pod-np .row { display: flex; gap: 8px; }
+.pod-np .art { width: 76px; height: 76px; flex: none; object-fit: cover; background: #ddd; box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  -webkit-box-reflect: below 1px linear-gradient(transparent 70%, rgba(255, 255, 255, .45)); }
+.pod-np .art.none { display: flex; align-items: center; justify-content: center; font-size: 34px; color: #999; background: linear-gradient(#f3f3f3, #d3d3d3); }
+.pod-np .meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-top: 6px; }
+.pod-np .meta b { font-size: 12px; }
+.pod-np .meta b, .pod-np .meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pod-np .meta span { color: #333; }
+.pod-np .progress, .pod-lyric { position: absolute; left: 8px; right: 8px; bottom: 8px; }
+.pod-np .track { height: 8px; border: 1px solid #6d7d92; background: linear-gradient(#fff, #dce3ec); position: relative; }
+.pod-np .track i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(#a7cbf5, #5293e2 50%, #3a7ad8 51%, #6aa6ee); }
+.pod-np .track.vol i { background: linear-gradient(#d6d6d6, #8a8a8a 50%, #6a6a6a 51%, #9a9a9a); }
+.pod-np .times { display: flex; justify-content: space-between; font-size: 10px; margin-top: 2px; }
+.pod-lyric { display: flex; flex-direction: column; gap: 2px; text-align: center; }
+.pod-lyric b { font-size: 12px; color: #1b4fb0; }
+.pod-lyric span { font-size: 10px; color: #777; min-height: 12px; }
+.pod-lyric b, .pod-lyric span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pod-wheel { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); width: 186px; height: 186px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #ffffff, #f1f1f1 60%, #e0e0e0);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .18), 0 1px 0 rgba(255, 255, 255, .8); touch-action: none; }
+.pod.black .pod-wheel { background: radial-gradient(circle at 50% 35%, #3c3c3f, #252527 60%, #1c1c1e); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6), 0 1px 0 rgba(255, 255, 255, .08); }
+.pod-wheel .pod-label { position: absolute; color: #b8bcc2; font-size: 11px; font-weight: bold; letter-spacing: .04em; pointer-events: none; }
+.pod.black .pod-wheel .pod-label { color: #e8e8e8; }
+.pod-wheel .w-menu { top: 14px; left: 50%; transform: translateX(-50%); }
+.pod-wheel .w-prev { left: 14px; top: 50%; transform: translateY(-50%); font-size: 13px; }
+.pod-wheel .w-next { right: 14px; top: 50%; transform: translateY(-50%); font-size: 13px; }
+.pod-wheel .w-play { bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; }
+.pod-wheel .center { position: absolute; left: 50%; top: 50%; width: 72px; height: 72px; transform: translate(-50%, -50%); border-radius: 50%;
+  border: 1px solid #cfd2d6; background: linear-gradient(160deg, #f7f8f9, #d9dce0); box-shadow: 0 1px 1px rgba(0, 0, 0, .12); padding: 0; }
+.pod.black .pod-wheel .center { border-color: #111; background: linear-gradient(160deg, #3a3b3e, #1f2022); }
+.pod-wheel .center:active { background: linear-gradient(160deg, #d9dce0, #f7f8f9); }

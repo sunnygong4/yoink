@@ -15,6 +15,7 @@ export type Page =
   | { kind: 'history' }
   | { kind: 'device' }
   | { kind: 'phone' }   // songs saved on this phone / computer
+  | { kind: 'iphone' }  // the whole app as an iPod classic (what iPhones open)
   | { kind: 'artist'; key: string }   // slug or name
   | { kind: 'album'; key: string }    // "<artist>/<album>": slugs, or names (each part URL-encoded)
 
@@ -29,9 +30,20 @@ export function urlFor(p: Page): string {
     case 'history': return '/history'
     case 'device': return '/ipod'
     case 'phone': return '/phone'
+    case 'iphone': return '/iphone'
     case 'artist': return `/artist/${encodeURIComponent(p.key)}`
     case 'album': return `/album/${p.key}`
   }
+}
+
+const FULL = 'yoinker.full'   // "1": this phone chose the full site over iPod mode
+const isIPhone = () => /iPhone|iPod/.test(navigator.userAgent)
+function wantsPod() {
+  try { return isIPhone() && localStorage.getItem(FULL) !== '1' } catch { return isIPhone() }
+}
+/** iPod mode or the full site, remembered on this phone. */
+export function preferPod(on: boolean) {
+  try { if (on) localStorage.removeItem(FULL); else localStorage.setItem(FULL, '1') } catch { /* private mode */ }
 }
 
 export function pageFromUrl(): Page {
@@ -40,6 +52,8 @@ export function pageFromUrl(): Page {
   if (kind === 'history') return { kind: 'history' }
   if (kind === 'ipod') return { kind: 'device' }
   if (kind === 'phone') return { kind: 'phone' }
+  if (kind === 'iphone') return { kind: 'iphone' }
+  if (!kind && wantsPod()) return { kind: 'iphone' }
   if (kind === 'artist' && a) return { kind: 'artist', key: decodeURIComponent(a) }
   if (kind === 'album' && a && b) return { kind: 'album', key: `${a}/${b}` }
   return { kind: 'library' }

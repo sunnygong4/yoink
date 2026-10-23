@@ -6,7 +6,7 @@ import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import DevicePage, { IPodPicture, PhonePicture } from './Device'
 import Import from './Import'
 import Login from './Login'
-import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, urlFor } from './Pages'
+import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, preferPod, urlFor } from './Pages'
 import Player from './Player'
 import { useIPod } from './ipod'
 import { canSave, useLocalDevice, useOnline } from './offline'
@@ -35,7 +35,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState<Page>(pageFromUrl)
   const [depth, setDepth] = useState(0)   // in-app steps we can go back
   useEffect(() => {
-    history.replaceState({ page, depth: 0 }, '', location.href)
+    history.replaceState({ page, depth: 0 }, '', page.kind === 'iphone' ? urlFor(page) : location.href)
     const onPop = (e: PopStateEvent) => { setPage(e.state?.page ?? pageFromUrl()); setDepth(e.state?.depth ?? 0) }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -102,9 +102,15 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview }
   const common = { ...actions, byId, library, currentId: q.current, open }
 
+  if (page.kind === 'iphone') {
+    return (
+      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)}
+        pod={{ user, library, phone, preview, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) } }} />
+    )
+  }
   return (
     <div className="itunes">
-      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} />
+      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)} />
       <div className="frame">
         <aside className="sourcelist">
           <h4>{t('libraryHeading')}</h4>
@@ -168,6 +174,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <button className={page.kind === 'library' ? 'on' : ''} onClick={() => go({ kind: 'library' })}>{t('library')}</button>
           <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>{t('find')}</button>
           {canSave && <button className={page.kind === 'phone' ? 'on' : ''} onClick={() => go({ kind: 'phone' })}>{t('thisDevice')}</button>}
+          <button onClick={() => { preferPod(true); go({ kind: 'iphone' }) }}>iPod</button>
           <button onClick={() => { setTheme(getTheme() === 'classic' ? 'yoinker' : 'classic'); rerender(n => n + 1) }}>◐</button>
         </nav>
         <span className="status-text">{t('status', { n: ready.length, m: minutes })}</span>

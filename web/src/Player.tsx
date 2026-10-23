@@ -8,6 +8,7 @@ import NowPlaying from './NowPlaying'
 import { albumPage, artistPage, type Page } from './Pages'
 import QueueDrawer from './QueueDrawer'
 import type { Queue } from './queue'
+import IPodMode, { type PodProps } from './IPodMode'
 import { savedAudio } from './offline'
 import { leadArtist } from './text'
 
@@ -15,13 +16,15 @@ const VOLUME = 'yoinker.volume'
 const SMART_AHEAD = 40   // seconds before the end of the last song: ask for a recommendation (it downloads meanwhile)
 
 /** The audio element, the bar at the bottom, the queue drawer and the full-screen view. */
-export default function Player({ q, byId, onSong, open, saved, online }: {
+export default function Player({ q, byId, onSong, open, saved, online, pod, rerender }: {
   q: Queue
   byId: Map<string, Song>
   onSong: (s: Song) => void   // a song the library list doesn't have yet (a recommendation)
   open: (p: Page) => void     // an artist / album page
   saved: Set<string>          // songs saved on this phone: they play from it, with or without a connection
   online: boolean
+  pod?: Omit<PodProps, 'saved' | 'online' | 'onSong'>   // iPod mode: the iPod instead of the iTunes bar
+  rerender: () => void
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -172,13 +175,20 @@ export default function Player({ q, byId, onSong, open, saved, online }: {
   const tr: Transport = { playing, time, duration, toggle, seek, next, prev, lucky, luckyBusy }
   const preparing = song && !ready && song.status !== 'error'
 
+  const el = (
+    <audio ref={audio} preload="auto"
+      onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+      onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
+      onDurationChange={e => setDuration(e.currentTarget.duration)}
+      onEnded={ended} onError={failed} />
+  )
+  if (pod) {
+    return <>{el}<IPodMode {...pod} saved={saved} online={online} onSong={onSong} q={q} tr={tr} song={song} lyrics={lyrics}
+      volume={volume} setVolume={setVolume} rerender={rerender} /></>
+  }
   return (
     <>
-      <audio ref={audio} preload="auto"
-        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-        onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
-        onDurationChange={e => setDuration(e.currentTarget.duration)}
-        onEnded={ended} onError={failed} />
+      {el}
 
       <header className="toolbar">
         <div className="transport">
