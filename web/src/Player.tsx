@@ -24,6 +24,20 @@ const SILENCE = (() => {
   return `data:audio/wav;base64,${btoa(String.fromCharCode(...b))}`
 })()
 const isPhone = /iPhone|iPad|iPod|Android/.test(navigator.userAgent)
+// the iPhone home-screen app gives up streaming a song from the server ("The operation was aborted"), but plays a
+// downloaded copy fine: there each song is fetched whole first, like a saved one
+const homeScreenIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) &&
+  ((navigator as { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches)
+async function fetchWhole(id: string): Promise<string | null> {
+  try {
+    const r = await fetch(api.audioUrl(id))
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    return URL.createObjectURL(await r.blob())
+  } catch (e) {
+    report('fetch failed', { msg: (e as Error).message })
+    return null
+  }
+}
 /** play(), and on phones what came of it into the server's log. */
 function start(a: HTMLAudioElement, why: string) {
   const src = a.src.startsWith('blob:') ? 'saved' : a.src.startsWith('data:') ? 'silence' : 'server'
@@ -70,7 +84,9 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     if (!song || !ready) { a.removeAttribute('src'); a.load(); setTime(0); setDuration(song?.duration || 0); return }
     let live = true
     // (only when the song changes: saving the song that's playing doesn't restart it)
-    ;(savedNow.current.has(song.id) ? savedAudio(song.id) : Promise.resolve(null)).then(local => {
+    ;(savedNow.current.has(song.id) ? savedAudio(song.id) : Promise.resolve(null))
+      .then(local => local ?? (homeScreenIOS ? fetchWhole(song.id) : null))
+      .then(local => {
       if (!live) return
       if (blob.current) URL.revokeObjectURL(blob.current)
       blob.current = local
@@ -95,13 +111,13 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       if (!a) return
       const nav = navigator as { audioSession?: { type: string } }
       if (nav.audioSession) nav.audioSession.type = 'playback'   // play with the silent switch on (iOS 17+)
-      const done = () => { for (const ev of EVENTS) removeEventListener(ev, unlock, true) }
+      const done = () => { for (const ev of EVENTS) removeEventListener(ev, unlock, true); report('unlocked', {}) }
       if (!a.src) {
         a.src = SILENCE
         start(a, 'unlock').then(() => { if (a.src === SILENCE) a.pause(); done() }, () => {})   // failed: the next tap tries again
       } else done()   // a song is loaded: playing it from a tap does the same
     }
-    const EVENTS = ['touchend', 'click', 'keydown'] as const
+    const EVENTS = ['click', 'touchend', 'keydown'] as const
     for (const ev of EVENTS) addEventListener(ev, unlock, true)
     return () => { for (const ev of EVENTS) removeEventListener(ev, unlock, true) }
   }, [])
@@ -217,6 +233,9 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       onPlay={e => setPlaying(e.currentTarget.src !== SILENCE)} onPause={() => setPlaying(false)}
       onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
       onDurationChange={e => setDuration(e.currentTarget.duration)}
+      onLoadedMetadata={e => { if (isPhone) report('loaded', { src: e.currentTarget.src.slice(0, 12), d: Math.round(e.currentTarget.duration) }) }}
+      onStalled={e => { if (isPhone) report('stalled', { rs: e.currentTarget.readyState, ns: e.currentTarget.networkState }) }}
+      onAbort={e => { if (isPhone && !e.currentTarget.src.startsWith('data:')) report('abort', { rs: e.currentTarget.readyState, ns: e.currentTarget.networkState, sw: !!navigator.serviceWorker?.controller }) }}
       onEnded={ended} onError={e => {
         const err = e.currentTarget.error
         if (isPhone) report('audio error', { code: err?.code, msg: err?.message, src: e.currentTarget.src.slice(0, 40) })
