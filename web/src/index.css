@@ -848,3 +848,14 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .pod-stage { display: block; padding: 0; }
 .pod-stage .pod { position: absolute; left: 50%; top: 0; transform-origin: top center; }
 .pod-stage:not(.pod-full) .pod { top: 50%; transform-origin: center; }
+
+/* ---------- /audiotest ---------- */
+.audiotest { padding: 16px; font: 14px -apple-system, sans-serif; background: #fff; min-height: 100vh; overflow-y: auto; height: 100vh; }
+.audiotest h1 { font-size: 20px; margin-bottom: 6px; }
+.audiotest p { color: #555; margin-bottom: 12px; line-height: 1.4; }
+.at-buttons { display: flex; flex-direction: column; gap: 8px; }
+.at-buttons button { height: 44px; font-size: 15px; justify-content: flex-start; padding: 0 14px; }
+.at-results { margin-top: 14px; padding-left: 20px; line-height: 1.4; }
+.at-results li { margin-bottom: 8px; }
+.at-results li.ok b { color: #1a8a2a; }
+.at-results li.bad b { color: #c0262d; }

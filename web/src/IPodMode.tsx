@@ -20,6 +20,7 @@ export type PodProps = {
   onSong: (s: Song) => void
   onLogout: () => void
   exit: () => void                             // to the full site
+  audioTest: () => void                        // the audio test page
 }
 
 type Item = { label: string; right?: string; more?: boolean; dim?: boolean; go?: () => void }
@@ -264,6 +265,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         { label: t('podColour'), right: black ? t('podBlack') : t('podSilver'), go: () => setBlack(b => !b) },
         { label: t('podAbout'), more: true, go: () => list('about', t('podAbout')) },
         { label: t('podFullSite'), go: p.exit },
+        { label: 'Audio test', go: p.audioTest },
         { label: t('logout'), go: p.onLogout },
       ]
       case 'about': return [

@@ -4,6 +4,7 @@ import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import DevicePage, { IPodPicture, PhonePicture } from './Device'
+import AudioTest from './AudioTest'
 import Import from './Import'
 import Login from './Login'
 import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, preferPod, urlFor } from './Pages'
@@ -102,10 +103,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview }
   const common = { ...actions, byId, library, currentId: q.current, open }
 
+  if (page.kind === 'audiotest') return <AudioTest library={library} onDone={() => go({ kind: 'iphone' })} />
   if (page.kind === 'iphone') {
     return (
       <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)}
-        pod={{ user, library, phone, preview, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) } }} />
+        pod={{ user, library, phone, preview, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) }, audioTest: () => go({ kind: 'audiotest' }) }} />
     )
   }
   return (
