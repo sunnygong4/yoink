@@ -24,20 +24,6 @@ const SILENCE = (() => {
   return `data:audio/wav;base64,${btoa(String.fromCharCode(...b))}`
 })()
 const isPhone = /iPhone|iPad|iPod|Android/.test(navigator.userAgent)
-// the iPhone home-screen app gives up streaming a song from the server ("The operation was aborted"), but plays a
-// downloaded copy fine: there each song is fetched whole first, like a saved one
-const homeScreenIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) &&
-  ((navigator as { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches)
-async function fetchWhole(id: string): Promise<string | null> {
-  try {
-    const r = await fetch(api.audioUrl(id))
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    return URL.createObjectURL(await r.blob())
-  } catch (e) {
-    report('fetch failed', { msg: (e as Error).message })
-    return null
-  }
-}
 /** play(), and on phones what came of it into the server's log. */
 function start(a: HTMLAudioElement, why: string) {
   const src = a.src.startsWith('blob:') ? 'saved' : a.src.startsWith('data:') ? 'silence' : 'server'
@@ -85,7 +71,6 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     let live = true
     // (only when the song changes: saving the song that's playing doesn't restart it)
     ;(savedNow.current.has(song.id) ? savedAudio(song.id) : Promise.resolve(null))
-      .then(local => local ?? (homeScreenIOS ? fetchWhole(song.id) : null))
       .then(local => {
       if (!live) return
       if (blob.current) URL.revokeObjectURL(blob.current)
