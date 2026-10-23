@@ -306,22 +306,49 @@ def album(artist_name: str, title: str, lang: str) -> dict | None:
     return a
 
 
+# stores to try after the artist's own: Japanese / Korean / Chinese-language music often isn't in the US one
+STORES = ("US", "JP", "TW", "KR", "GB")
+
+
 def _album(artist_name: str, title: str, lang: str) -> dict | None:
-    rows = _client.get("https://itunes.apple.com/search", params={
-        "term": f"{artist_name} {title}", "entity": "album", "limit": 25,
-        "country": _country(f"{artist_name}{title}")}).json().get("results") or []
+    home = _country(f"{artist_name}{title}")
     want = flat(catalog.clean_title(title))
     lead = flat(catalog.lead_artist(artist_name))
 
     def score(a):
-        t = flat(catalog.clean_title(a["collectionName"]))
+        t = flat(catalog.clean_title(a.get("collectionName") or ""))
         return (t == want) * 4 + (want in t) * 2 + (lead in flat(a.get("artistName"))) * 3 - ("deluxe" in t) * .5
 
+    def search(country):
+        return _client.get("https://itunes.apple.com/search", params={
+            "term": f"{artist_name} {title}", "entity": "album", "limit": 25, "country": country}).json().get("results") or []
+
+    rows = search(home)
     best = max(rows, key=score, default=None)
     if not best or score(best) < 4:
+        # the store's search misses some albums its artist lists ("Fishmans Kuuchuu Camp" finds nothing in the US):
+        # the artist's own album list (what the artist page shows), then the other stores' searches
+        it = _itunes_artist(catalog.lead_artist(artist_name))
+        if it:
+            rows = [a for a in (_client.get("https://itunes.apple.com/lookup", params={
+                "id": it["artistId"], "entity": "album", "limit": 200, "country": _country(artist_name)}).json().get("results") or [])
+                if a.get("wrapperType") == "collection"]
+            best = max(rows, key=score, default=None)
+        for country in STORES:
+            if best and score(best) >= 4:
+                break
+            if country != home:
+                best = max(search(country), key=score, default=None)
+    if not best or score(best) < 4:
         return None
-    tracks = _client.get("https://itunes.apple.com/lookup", params={
-        "id": best["collectionId"], "entity": "song", "country": _country(f"{artist_name}{title}")}).json().get("results") or []
+    # the tracks: some stores list an album but not its songs (the US one has Kuuchuu Camp, without tracks)
+    tracks = []
+    for country in dict.fromkeys((home, *STORES)):
+        tracks = [t for t in (_client.get("https://itunes.apple.com/lookup", params={
+            "id": best["collectionId"], "entity": "song", "country": country}).json().get("results") or [])
+            if t.get("wrapperType") == "track"]
+        if tracks:
+            break
     songs = [_song(t) for t in tracks if t.get("wrapperType") == "track" and t.get("trackName")]
     songs.sort(key=lambda s: (s["disc"] or 1, s["track"] or 0))
     description = None
