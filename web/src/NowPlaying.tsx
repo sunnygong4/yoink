@@ -8,9 +8,8 @@ import { albumPage, artistPage, type Page } from './Pages'
 import type { Queue } from './queue'
 import { leadArtist } from './text'
 import { useCoverPalette } from './coverColor'
-import { getTheme } from './theme'
 
-/** Full screen. Yoinker: the album cover as a spinning record beside the lyrics; Classic: iTunes 11's. */
+/** Full screen, iTunes 11's: the cover on its own colour, the lyrics, a QuickTime-style HUD. */
 export default function NowPlaying({ song, tr, lyrics, q, preparing, onClose, onQueue, onSong, open }: {
   song: Song; tr: Transport; lyrics: Lyrics | null; q: Queue; preparing: boolean
   onClose: () => void; onQueue: () => void; onSong: (s: Song) => void; open: (p: Page) => void
@@ -26,114 +25,51 @@ export default function NowPlaying({ song, tr, lyrics, q, preparing, onClose, on
   const isLast = q.pos >= q.ids.length - 1
   const pal = useCoverPalette(song.thumbnail)
 
-  if (getTheme() === 'classic') {
-    // iTunes 11's full screen: the cover (with its reflection) on the cover's own colour, a QuickTime-style HUD
-    return (
-      <div className={'full classic-full' + (pal.dark ? ' on-dark' : ' on-light')} role="dialog" aria-modal="true"
-        aria-label={t('fullScreen')} style={{ '--ia-bg': pal.bg, '--ia-fg': pal.fg, '--ia-fg2': pal.fg2 } as React.CSSProperties}>
-        <div className="cf-top">
-          <button className="cf-btn" onClick={onClose} title={t('close')}><I.Expand size={13} /> {t('exitFull')}</button>
-          <button className="cf-btn" onClick={onQueue} title={t('queue')}><I.QueueIcon size={14} /></button>
-        </div>
-        <div className="cf-stage">
-          <div className="cf-art">
-            {song.thumbnail ? <img src={song.thumbnail} alt="" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
-              : <div className="cf-blank">♫</div>}
-          </div>
-          <div className="cf-info">
-            <h1>{song.title}</h1>
-            <p className="cf-sub">{preparing ? t('preparing') : <>
-              <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
-              {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
-            </>}</p>
-            {song.radio && (
-              <button className="cf-btn keep" onClick={() => api.keep(song.id).then(onSong)}><I.Heart size={12} /> {t('keep')}</button>
-            )}
-            <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} songId={song.id} />
-          </div>
-        </div>
-        <div className="cf-hud">
-          <div className="cf-buttons">
-            <ModeButtons q={q} only="shuffle" />
-            <button className="cf-ctl" onClick={tr.prev} title={t('prev')}><I.Prev size={20} /></button>
-            <button className="cf-ctl big" onClick={tr.toggle} disabled={preparing} title={tr.playing ? t('pause') : t('play')}>
-              {tr.playing ? <I.Pause size={24} /> : <I.Play size={24} />}
-            </button>
-            <button className="cf-ctl" onClick={tr.next} disabled={isLast && q.repeat !== 'all'} title={t('next')}><I.Next size={20} /></button>
-            <ModeButtons q={q} only="repeat" />
-            <LuckyButton tr={tr} />
-          </div>
-          <div className="cf-seek">
-            <span>{fmtTime(tr.time)}</span>
-            <input type="range" min={0} max={tr.duration || 0} step={0.1} value={Math.min(tr.time, tr.duration || 0)}
-              onChange={e => tr.seek(Number(e.target.value))} style={{ '--p': `${pct}%` } as React.CSSProperties} />
-            <span>-{fmtTime(Math.max(0, tr.duration - tr.time))}</span>
-          </div>
-          <AutoplaySwitch q={q} />
-        </div>
-      </div>
-    )
-  }
-
+  // iTunes 11's full screen: the cover (with its reflection) on the cover's own colour, a QuickTime-style HUD
   return (
-    <div className="full" role="dialog" aria-modal="true" aria-label={t('fullScreen')}>
-      {song.thumbnail && <div className="full-bg" style={{ backgroundImage: `url("${song.thumbnail}")` }} />}
-      <div className="full-top">
-        <button className="ib" onClick={onClose} title={t('close')}><I.Down size={26} /></button>
-        <span className="full-label">{t('nowPlaying')}</span>
-        <button className="ib" onClick={onQueue} title={t('queue')}><I.QueueIcon /></button>
+    <div className={'full classic-full' + (pal.dark ? ' on-dark' : ' on-light')} role="dialog" aria-modal="true"
+      aria-label={t('fullScreen')} style={{ '--ia-bg': pal.bg, '--ia-fg': pal.fg, '--ia-fg2': pal.fg2 } as React.CSSProperties}>
+      <div className="cf-top">
+        <button className="cf-btn" onClick={onClose} title={t('close')}><I.Expand size={13} /> {t('exitFull')}</button>
+        <button className="cf-btn" onClick={onQueue} title={t('queue')}><I.QueueIcon size={14} /></button>
       </div>
-
-      <div className="full-main">
-        <div className="turntable">
-          <div className={'vinyl' + (tr.playing ? ' spinning' : '')}>
-            <div className="grooves" />
-            {song.thumbnail ? <img className="label" src={song.thumbnail} alt="" onError={e => { e.currentTarget.style.visibility = 'hidden' }} /> : <div className="label blank" />}
-            <div className="spindle" />
-          </div>
-          <svg className={'tonearm' + (tr.playing ? ' down' : '')} viewBox="0 0 100 300" aria-hidden="true">
-            <circle cx="70" cy="30" r="18" className="arm-base" />
-            <circle cx="70" cy="30" r="7" className="arm-pivot" />
-            <path d="M70 30 L70 200 Q70 235 45 255" className="arm-rod" />
-            <rect x="28" y="248" width="26" height="34" rx="4" transform="rotate(30 41 265)" className="arm-head" />
-          </svg>
+      <div className="cf-stage">
+        <div className="cf-art">
+          {song.thumbnail ? <img src={song.thumbnail} alt="" onError={e => { e.currentTarget.style.visibility = 'hidden' }} />
+            : <div className="cf-blank">♫</div>}
         </div>
-        <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} songId={song.id} />
-      </div>
-
-      <div className="full-bottom">
-        <div className="full-title">
-          <div>
-            <h1>{song.title}</h1>
-            <p>{preparing ? t('preparing') : <>
-              <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
-              {song.album && <> · <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
-            </>}</p>
-          </div>
+        <div className="cf-info">
+          <h1>{song.title}</h1>
+          <p className="cf-sub">{preparing ? t('preparing') : <>
+            <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
+            {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
+          </>}</p>
           {song.radio && (
-            <button className="chip" onClick={() => api.keep(song.id).then(onSong)}><I.Heart size={16} /> {t('keep')}</button>
+            <button className="cf-btn keep" onClick={() => api.keep(song.id).then(onSong)}><I.Heart size={12} /> {t('keep')}</button>
           )}
+          <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} songId={song.id} />
         </div>
-        <div className="seek big">
+      </div>
+      <div className="cf-hud">
+        <div className="cf-buttons">
+          <ModeButtons q={q} only="shuffle" />
+          <button className="cf-ctl" onClick={tr.prev} title={t('prev')}><I.Prev size={20} /></button>
+          <button className="cf-ctl big" onClick={tr.toggle} disabled={preparing} title={tr.playing ? t('pause') : t('play')}>
+            {tr.playing ? <I.Pause size={24} /> : <I.Play size={24} />}
+          </button>
+          <button className="cf-ctl" onClick={tr.next} disabled={isLast && q.repeat !== 'all'} title={t('next')}><I.Next size={20} /></button>
+          <ModeButtons q={q} only="repeat" />
+          <LuckyButton tr={tr} />
+        </div>
+        <div className="cf-seek">
           <span>{fmtTime(tr.time)}</span>
           <input type="range" min={0} max={tr.duration || 0} step={0.1} value={Math.min(tr.time, tr.duration || 0)}
             onChange={e => tr.seek(Number(e.target.value))} style={{ '--p': `${pct}%` } as React.CSSProperties} />
-          <span>{fmtTime(tr.duration)}</span>
+          <span>-{fmtTime(Math.max(0, tr.duration - tr.time))}</span>
         </div>
-        <div className="buttons big">
-          <ModeButtons q={q} only="shuffle" />
-          <button className="ib" onClick={tr.prev} title={t('prev')}><I.Prev size={28} /></button>
-          <button className="ib play" onClick={tr.toggle} disabled={preparing} title={tr.playing ? t('pause') : t('play')}>
-            {tr.playing ? <I.Pause size={30} /> : <I.Play size={30} />}
-          </button>
-          <button className="ib" onClick={tr.next} disabled={isLast && q.repeat !== 'all'} title={t('next')}><I.Next size={28} /></button>
-          <ModeButtons q={q} only="repeat" />
-        </div>
-        <div className="full-modes">
-          <LuckyButton tr={tr} />
-          <AutoplaySwitch q={q} />
-        </div>
+        <AutoplaySwitch q={q} />
       </div>
     </div>
   )
+
 }

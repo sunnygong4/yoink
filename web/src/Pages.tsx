@@ -11,7 +11,7 @@ import { flat, leadArtist } from './text'
 // names) and the address bar switches to that.
 export type Page =
   | { kind: 'library' }
-  | { kind: 'search' }
+  | { kind: 'search'; q?: string }   // q: run this search when the page opens
   | { kind: 'history' }
   | { kind: 'device' }
   | { kind: 'phone' }   // songs saved on this phone / computer
@@ -27,7 +27,7 @@ export const albumPage = (artist: string, title: string): Page =>
 export function urlFor(p: Page): string {
   switch (p.kind) {
     case 'library': return '/'
-    case 'search': return '/find'
+    case 'search': return p.q ? `/find?${new URLSearchParams({ q: p.q })}` : '/find'
     case 'history': return '/history'
     case 'device': return '/ipod'
     case 'phone': return '/phone'
@@ -50,7 +50,7 @@ export function preferPod(on: boolean) {
 
 export function pageFromUrl(): Page {
   const [kind, a, b] = location.pathname.split('/').filter(Boolean)
-  if (kind === 'find') return { kind: 'search' }
+  if (kind === 'find') return { kind: 'search', q: new URLSearchParams(location.search).get('q') || undefined }
   if (kind === 'history') return { kind: 'history' }
   if (kind === 'ipod') return { kind: 'device' }
   if (kind === 'phone') return { kind: 'phone' }
@@ -321,8 +321,7 @@ export function HistoryPage({ currentId, open, play, onSong }: Common & { onSong
     try {
       await api.add({ source: r.source, id: r.song_id.replace(/^(yt|bili)-/, ''), url: r.url, title: r.title, channel: r.artist,
         album: r.album, duration: 0, views: null, thumbnail: r.thumbnail || '', tags: [], fit: 0 },
-        { key: '', title: r.title, artist: r.artist, album: r.album || '', duration: null, artwork: r.thumbnail || '',
-          year: '', versions: 1, song_id: null, instant: false })
+        { title: r.title, artist: r.artist, album: r.album || '', duration: null, artwork: r.thumbnail || '' })
       setVersion(v => v + 1)
     } catch (e) { alert((e as Error).message) }
     setBusy(null)

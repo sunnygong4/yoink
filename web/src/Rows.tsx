@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, fmtTime, type CatalogSong, type Song, type Source } from './api'
+import { api, fmtTime, type CatalogSong, type Song, type Source, type Upload, type UploadSong } from './api'
 import { errorText, t } from './i18n'
 import * as I from './icons'
 import { albumPage, artistPage, type Page } from './Pages'
@@ -13,6 +13,54 @@ export type Actions = {
   playNext: (id: string) => void
   enqueue: (id: string) => void
   preview: (s: CatalogSong) => Promise<void>   // ▶ on a song that isn't in the library: just listen
+  listen: (r: Source) => Promise<void>         // ▶ on an upload found on YouTube: just listen
+}
+
+/** What an upload is called once added: a YouTube Music track has real details; a plain video is named from
+ *  its title by the server (as an imported link is). */
+export function uploadSong(r: Source): UploadSong | undefined {
+  if (!r.tags?.includes('ytmusic')) return undefined
+  return { title: r.title, artist: r.channel, album: r.album ?? null, duration: r.duration,
+    artwork: `https://i.ytimg.com/vi/${r.id}/hqdefault.jpg` }
+}
+
+/** A YouTube Music song / YouTube video found for the search: ▶ to listen, + to add. */
+export function UploadRow({ r, odd, lib, currentId, listen, play, onAdded }: {
+  r: Upload; odd: boolean; lib?: Song; currentId?: string; onAdded: (s: Song) => void
+} & Pick<Actions, 'listen' | 'play'>) {
+  const [busy, setBusy] = useState<'play' | 'add' | null>(null)
+  const [error, setError] = useState('')
+  const ready = lib?.status === 'ready'
+  async function run(what: 'play' | 'add', f: () => Promise<unknown>) {
+    setBusy(what)
+    setError('')
+    try { await f() } catch (err) { setError((err as Error).message) }
+    setBusy(null)
+  }
+  return (
+    <div className={'result' + (odd ? ' odd' : '') + (lib && lib.id === currentId ? ' now' : '')}>
+      <img className="art wide" src={r.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
+      <div className="result-text">
+        <span className="name">{r.title}</span>
+        <span className="sub">
+          {r.channel}{r.album && ` · ${r.album}`} · {fmtTime(r.duration)}
+          {r.tags.includes('ytmusic') ? <span className="tag good">{t('official')}</span> : <span className="tag">YouTube</span>}
+        </span>
+        {lib && !ready && <SongStatus song={lib} />}
+        {error && <span className="status error">{error}</span>}
+      </div>
+      <a className="mini" href={r.url} target="_blank" rel="noreferrer" title={t('openSource')}>↗</a>
+      <button className={'pill' + (ready ? '' : ' blue')} disabled={busy === 'play'} title={ready ? t('playHint') : t('previewHint')}
+        onClick={() => ready ? play([lib!.id]) : run('play', () => listen(r))}>
+        <I.Play size={10} /> {busy === 'play' ? '…' : t('play')}
+      </button>
+      {lib && lib.status !== 'error' && !lib.radio
+        ? <button className="pill" disabled title={t('inLibraryHint')}>✓ {t('inLibraryShort')}</button>
+        : <button className="pill" disabled={busy === 'add'} onClick={() => run('add', async () => onAdded(await api.add(r, uploadSong(r))))}>
+          <I.Plus size={10} /> {busy === 'add' ? '…' : t('addToLibrary')}
+        </button>}
+    </div>
+  )
 }
 
 export function SongStatus({ song }: { song: Song }) {

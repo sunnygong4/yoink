@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, fmtTime, type CatalogResults, type CatalogSong, type Song, type User } from './api'
+import { api, fmtTime, type CatalogResults, type CatalogSong, type Song, type Source, type Upload, type User } from './api'
 import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
@@ -12,9 +12,8 @@ import Player from './Player'
 import { useIPod } from './ipod'
 import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
-import { type Actions, CatalogRow, SongStatus } from './Rows'
+import { type Actions, CatalogRow, SongStatus, uploadSong, UploadRow } from './Rows'
 import { flat, leadArtist } from './text'
-import { getTheme, setTheme } from './theme'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -100,14 +99,20 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     onSong(s)
     q.playNow(s.id)
   }, [onSong, q])
-  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview }
+  // ▶ on a YouTube find: the same, for an upload
+  const listen = useCallback(async (r: Source) => {
+    const s = await api.add(r, uploadSong(r), true)
+    onSong(s)
+    q.playNow(s.id)
+  }, [onSong, q])
+  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview, listen }
   const common = { ...actions, byId, library, currentId: q.current, open }
 
   if (page.kind === 'audiotest') return <AudioTest library={library} onDone={() => go({ kind: 'iphone' })} />
   if (page.kind === 'iphone') {
     return (
       <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)}
-        pod={{ user, library, phone, preview, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) }, audioTest: () => go({ kind: 'audiotest' }) }} />
+        pod={{ user, library, phone, preview, listen, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) }, audioTest: () => go({ kind: 'audiotest' }) }} />
     )
   }
   return (
@@ -142,10 +147,6 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }}>
             <span className="glyph">文</span> <span>{t('language')}</span>
           </button>
-          <button onClick={() => { setTheme(getTheme() === 'classic' ? 'yoinker' : 'classic'); rerender(n => n + 1) }}
-            title={t('themeHint')}>
-            <span className="glyph">◐</span> <span>{t('theme', { name: getTheme() === 'classic' ? 'Classic' : 'Yoinker' })}</span>
-          </button>
           <button onClick={onLogout}><I.Close size={15} /> <span>{t('logout')}</span></button>
         </aside>
 
@@ -163,7 +164,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           )}
           {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
           {page.kind === 'library' && <Library songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
-          {page.kind === 'search' && <Search byId={byId} currentId={q.current} open={open} {...actions} />}
+          {page.kind === 'search' && <Search key={page.q ?? ''} initial={page.q} byId={byId} currentId={q.current} open={open} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
           {page.kind === 'phone' && <DevicePage ipod={phone} user={user} library={library} phone />}
@@ -177,7 +178,6 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>{t('find')}</button>
           {canSave && <button className={page.kind === 'phone' ? 'on' : ''} onClick={() => go({ kind: 'phone' })}>{t('thisDevice')}</button>}
           <button onClick={() => { preferPod(true); go({ kind: 'iphone' }) }}>iPod</button>
-          <button onClick={() => { setTheme(getTheme() === 'classic' ? 'yoinker' : 'classic'); rerender(n => n + 1) }}>◐</button>
         </nav>
         <span className="status-text">{t('status', { n: ready.length, m: minutes })}</span>
       </footer>
@@ -379,7 +379,9 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
         <span className="grow" />
         <label className="searchfield">
           <I.Search size={12} />
-          <input placeholder={t('filterLibrary')} value={filter} onChange={e => setFilter(e.target.value)} />
+          <input placeholder={t('findOrFilter')} title={t('findOrFilterHint')} value={filter} enterKeyHint="search"
+            onChange={e => setFilter(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && filter.trim()) open({ kind: 'search', q: filter.trim() }) }} />
         </label>
       </div>
       {prefs.view === 'albums' && flow.length > 0 && (
@@ -419,8 +421,14 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
   )
 }
 
-function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<string, Song>; currentId?: string; open: (p: Page) => void }) {
-  const [q, setQ] = useState('')
+function Search({ initial, byId, currentId, open, ...actions }: Actions & {
+  initial?: string; byId: Map<string, Song>; currentId?: string; open: (p: Page) => void
+}) {
+  const [q, setQ] = useState(initial ?? '')
+  const [uploads, setUploads] = useState<Upload[] | null>(null)   // 找不到的歌: YouTube Music / YouTube finds
+  const [upBusy, setUpBusy] = useState(false)
+  const [upAdded, setUpAdded] = useState<Record<string, string>>({})
+  useEffect(() => { if (initial) run(initial) }, [])
   const [res, setRes] = useState<CatalogResults | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -432,8 +440,16 @@ function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
     setBusy(true)
     setError('')
     setPicker(null)
-    try { setRes(await api.catalog(term)) } catch (err) { setError((err as Error).message) }
+    setUploads(null)
+    let found: CatalogResults | null = null
+    try { found = await api.catalog(term); setRes(found) } catch (err) { setError((err as Error).message) }
     setBusy(false)
+    if (!found || found.matched < 3) findUploads(term)   // the store hardly knows it: look on YouTube too
+  }
+  async function findUploads(term = q) {
+    setUpBusy(true)
+    try { setUploads(await api.uploads(term)) } catch (err) { setError((err as Error).message) }
+    setUpBusy(false)
   }
 
   const top = res?.top
@@ -442,7 +458,7 @@ function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
   return (
     <>
       <div className="listbar">
-        <SearchBox value={q} onChange={setQ} busy={busy} onSearch={term => { setQ(term); run(term) }}
+        <SearchBox value={q} onChange={setQ} busy={busy} focus={!initial} onSearch={term => { setQ(term); run(term) }}
           onArtist={name => open(artistPage(name))} />
       </div>
       {error && <p className="error pad">{error}</p>}
@@ -499,6 +515,20 @@ function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
               </div>
             </section>
           )}
+          {!res.songs.length && !uploads && !upBusy && <p className="pad hint">{t('nothingFound')}</p>}
+          <section className="uploads">
+            <h2 className="section-title">{t('onYouTube')}</h2>
+            {uploads ? (uploads.length ? (
+              <div className="results">
+                {uploads.map((r, i) => (
+                  <UploadRow key={r.id} r={r} odd={i % 2 === 1} lib={byId.get(upAdded[r.id] || r.song_id || '')} currentId={currentId}
+                    listen={actions.listen} play={actions.play} onAdded={s => setUpAdded(a => ({ ...a, [r.id]: s.id }))} />
+                ))}
+              </div>
+            ) : <p className="pad hint">{t('nothingOnYouTube')}</p>)
+              : upBusy ? <p className="pad hint">{t('searchingYouTube')}</p>
+                : <button className="pill find-more" onClick={() => findUploads()}><I.Search size={10} /> {t('searchYouTube', { q })}</button>}
+          </section>
         </div>
       )}
     </>
@@ -537,8 +567,9 @@ function ForYou({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
 }
 
 /** The search field with Google-style suggestions: artists whose name starts like this, then the plain query. */
-function SearchBox({ value, onChange, onSearch, onArtist, busy }: {
+function SearchBox({ value, onChange, onSearch, onArtist, busy, focus }: {
   value: string; onChange: (v: string) => void; onSearch: (q: string) => void; onArtist: (name: string) => void; busy: boolean
+  focus: boolean   // into the box at once (not when the page opened with a search already running)
 }) {
   const [items, setItems] = useState<string[]>([])
   const [open, setOpen] = useState(false)
@@ -565,7 +596,7 @@ function SearchBox({ value, onChange, onSearch, onArtist, busy }: {
     <form className="searchbox" onSubmit={e => { e.preventDefault(); if (hi >= 0 && options[hi]) choose(options[hi]); else { setOpen(false); onSearch(value) } }}>
       <label className="searchfield wide">
         <I.Search size={12} />
-        <input placeholder={t('searchPlaceholder')} value={value} autoFocus
+        <input placeholder={t('searchPlaceholder')} value={value} autoFocus={focus}
           onChange={e => { onChange(e.target.value); setOpen(true) }}
           onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={e => {

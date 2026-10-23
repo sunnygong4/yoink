@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, type CatalogResults, type CatalogSong, type Lyrics, type Song, type User } from './api'
+import { api, type CatalogResults, type CatalogSong, type Lyrics, type Song, type Source, type Upload, type User } from './api'
+import { uploadSong } from './Rows'
 import { getLang, setLang, t } from './i18n'
 import type { IPod } from './ipod'
 import type { Transport } from './Modes'
@@ -17,6 +18,7 @@ export type PodProps = {
   online: boolean
   phone: IPod                                  // songs saved on this phone
   preview: (s: CatalogSong) => Promise<void>   // a catalog song that isn't in the library: fetch it and play it
+  listen: (r: Source) => Promise<void>         // the same for a YouTube find
   onSong: (s: Song) => void
   onLogout: () => void
   exit: () => void                             // to the full site
@@ -86,6 +88,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   const [query, setQuery] = useState('')
   const [suggest, setSuggest] = useState<string[]>([])
   const [results, setResults] = useState<CatalogResults | null>(null)
+  const [finds, setFinds] = useState<Upload[]>([])   // YouTube finds, when the catalog hardly knows the song
   const [searching, setSearching] = useState(false)
   const [picks, setPicks] = useState<CatalogSong[] | null>(null)
   const [added, setAdded] = useState<Record<string, string>>({})   // catalog key -> library id
@@ -250,6 +253,29 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           { label: mb(x.size || 0), dim: true },
         ]
       }
+      case 'upload': {   // a YouTube find: listen, or add it
+        const r = JSON.parse(s.arg!) as Upload
+        const mine = p.library.find(x => x.id === (added[r.id] || r.song_id))
+        return [
+          { label: `▶ ${t('play')}`, go: async () => {
+            if (mine?.status === 'ready') { q.play([mine.id]); openNow(); return }
+            setBusy(r.title)
+            try { await p.listen(r); openNow() } catch (e) { message(t('podError'), (e as Error).message) }
+            setBusy('')
+          } },
+          mine && !mine.radio ? { label: `✓ ${t('inLibraryShort')}`, dim: true } : { label: `+ ${t('addToLibrary')}`, go: async () => {
+            setBusy(r.title)
+            try {
+              const x = await api.add(r, uploadSong(r))
+              setAdded(a => ({ ...a, [r.id]: x.id }))
+              p.onSong(x)
+              setStack(st => st.slice(0, -1))
+            } catch (e) { message(t('podError'), (e as Error).message) }
+            setBusy('')
+          } },
+          { label: r.channel, dim: true },
+        ]
+      }
       case 'nowMenu': {   // long press on the centre button while a song plays
         if (!song) return [{ label: t('podNothing'), dim: true }]
         const upNext = q.ids[q.ids.indexOf(song.id) + 1]
@@ -310,7 +336,10 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     setQuery(term)
     setSearching(true)
     setSuggest([])
-    try { setResults(await api.catalog(term)) } catch (e) { message(t('podError'), (e as Error).message) }
+    setFinds([])
+    let found: CatalogResults | null = null
+    try { found = await api.catalog(term); setResults(found) } catch (e) { message(t('podError'), (e as Error).message) }
+    if (!found || found.matched < 3) setFinds(await api.uploads(term).catch(() => []))
     setSearching(false)
     setStack(st => st.map((x, i) => (i === st.length - 1 && x.kind === 'search' ? { ...x, sel: 0, top: 0 } : x)))
   }
@@ -321,6 +350,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
       return [
         ...artistNames.map(n => ({ label: n, right: t('artistKind'), more: true, go: () => { setResults(null); runSearch(n) } })),
         ...results.songs.map(catalogItem),
+        ...finds.map(r => ({ label: r.title, right: 'YouTube', more: true, go: () => list('upload', r.title, JSON.stringify(r)) })),
+        ...(!results.songs.length && !finds.length ? [{ label: t('nothingOnYouTube'), dim: true }] : []),
       ]
     }
     return [

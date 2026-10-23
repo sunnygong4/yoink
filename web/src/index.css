@@ -861,3 +861,7 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .at-results li.bad b { color: #c0262d; }
 
 .pod-wheel .center { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+/* ---------- search: YouTube finds ---------- */
+.result .art.wide { width: 64px; height: 36px; object-fit: cover; }
+.uploads .find-more { margin: 10px 12px 16px; }

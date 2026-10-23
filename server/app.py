@@ -127,7 +127,11 @@ def catalog_search(q: str, user=Depends(auth.current_user)):
         albums = cat.albums(q)
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
-    return {"songs": mark(songs, user), "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs)}
+    # songs that really are what was searched (all its words in the name, artist or album): few means the store
+    # hardly knows it, and the web app looks on YouTube too
+    matched = sum(cat.relevance(q, x["title"], x["artist"], x.get("album")) == 1 for x in songs)
+    return {"songs": mark(songs, user), "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs),
+            "matched": matched}
 
 
 class AlbumAdd(BaseModel):
@@ -271,6 +275,22 @@ def quick_add(song: CatalogSong, user=Depends(auth.current_user)):
                                          "没找到靠谱的来源，试试「单独选取」"))
 
 
+@app.get("/api/uploads")
+def uploads(q: str, user=Depends(auth.current_user)):
+    """找不到的歌: YouTube Music songs and YouTube videos for the query; song_id when it's in the library."""
+    if not q.strip():
+        return []
+    try:
+        rows = cat.uploads(q)
+    except Exception as e:
+        raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
+    mine = lib.owned(user)
+    for r in rows:
+        sid = lib.song_id(r["source"], r["id"])
+        r["song_id"] = sid if sid in mine else None
+    return rows
+
+
 @app.post("/api/sources")
 def sources(song: CatalogSong, where: str = "youtube", _=Depends(auth.current_user)):
     """单独选取: uploads of a song to choose from, best first."""
@@ -289,6 +309,7 @@ class AddSong(BaseModel):
     duration: float | None = None
     thumbnail: str | None = None
     song: CatalogSong | None = None   # the catalog song this upload was picked for (gives it its real name + cover)
+    preview: bool = False             # just to listen (▶): not into the library
 
 
 @app.post("/api/songs")
@@ -297,8 +318,8 @@ def add_song(body: AddSong, user=Depends(auth.current_user)):
         raise HTTPException(400, "bad source")
     if body.duration and body.duration > se.MAX_DURATION:
         raise HTTPException(400, i18n.tr("Too long to be a song", "太长了，不像是一首歌"))
-    r = body.model_dump(exclude={"song"})
-    return lib.add(r, user, body.song.model_dump() if body.song else None)
+    r = body.model_dump(exclude={"song", "preview"})
+    return lib.add(r, user, body.song.model_dump() if body.song else None, radio=body.preview)
 
 
 @app.get("/api/songs")
@@ -434,7 +455,9 @@ def _import_message(code: str) -> str:
         "link": i18n.tr("Only YouTube and Bilibili links work", "只支持 YouTube 和 B站链接"),
         "notfound": i18n.tr("Couldn't open that video", "打不开这个视频"),
         "long": i18n.tr("Too long to be a song", "太长了，不像是一首歌"),
-        "bili": i18n.tr("Bilibili is blocking downloads right now: try a YouTube link", "B站暂时不让下载，换个 YouTube 链接试试"),
+        "bili": i18n.tr("Bilibili changed its site and the downloader can't get through yet (it updates itself daily, so "
+                        "this should start working again soon). Try a YouTube link for now",
+                        "B站最近改了网站，下载工具暂时进不去（服务器每天会自动更新它，修好后就能用）。先换个 YouTube 链接吧"),
     }[code]
 
 

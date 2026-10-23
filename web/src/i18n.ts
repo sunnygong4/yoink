@@ -17,6 +17,13 @@ const en = {
   inviteLink: 'Invite link (works once):',
   close: 'Close',
   filterLibrary: 'Filter the library…',
+  findOrFilter: 'Find songs…',
+  findOrFilterHint: 'Typing filters your library; Enter searches for songs to add',
+  onYouTube: 'On YouTube',
+  searchYouTube: 'Search YouTube for “{q}”',
+  searchingYouTube: 'Searching YouTube…',
+  nothingOnYouTube: 'Nothing on YouTube either',
+  nothingFound: 'Not in the store catalog.',
   playAll: 'Play all',
   shuffle: 'Shuffle',
   songCount: '{n} songs',
@@ -166,8 +173,6 @@ const en = {
   viewAlbums: 'Albums',
   nSongs: '{n} songs',
   sortAdded: 'Sort by date added',
-  theme: 'Look: {name}',
-  themeHint: 'Classic: iTunes-era Apple · Yoinker: the dark look',
   editPictures: 'Change pictures',
   pic_logo: 'Logo…',
   pic_photo: 'Avatar…',
@@ -233,7 +238,7 @@ const en = {
   err_age: 'Age-restricted on YouTube (needs a login): try another source',
   err_bot: 'YouTube is blocking the server for now: retry later',
   err_unavailable: 'The video is unavailable: try another source',
-  err_bili: 'Bilibili is blocking downloads right now: try a YouTube source',
+  err_bili: 'Bilibili changed its site and the downloader can’t get through yet (it updates itself daily): try a YouTube source',
 }
 
 type Dict = typeof en
@@ -256,6 +261,13 @@ const zh: Dict = {
   inviteLink: '邀请链接（只能用一次）：',
   close: '关闭',
   filterLibrary: '在歌库里找…',
+  findOrFilter: '找歌…',
+  findOrFilterHint: '输入会筛选歌库；按回车去「找歌」搜',
+  onYouTube: 'YouTube 上的结果',
+  searchYouTube: '在 YouTube 上找「{q}」',
+  searchingYouTube: '正在 YouTube 上找…',
+  nothingOnYouTube: 'YouTube 上也没找到',
+  nothingFound: '音乐商店里没有这首。',
   playAll: '全部播放',
   shuffle: '随机播放',
   songCount: '{n} 首歌',
@@ -405,8 +417,6 @@ const zh: Dict = {
   viewAlbums: '专辑',
   nSongs: '{n} 首',
   sortAdded: '按添加时间排序',
-  theme: '外观：{name}',
-  themeHint: 'Classic：早期苹果风 · Yoinker：深色风格',
   editPictures: '更换图片',
   pic_logo: '换 logo…',
   pic_photo: '换头像…',
@@ -471,7 +481,7 @@ const zh: Dict = {
   err_age: '年龄限制：YouTube 要求登录，换一个来源吧',
   err_bot: 'YouTube 暂时拦截了服务器，稍后重试',
   err_unavailable: '视频不可用，换一个来源吧',
-  err_bili: 'B站暂时不让下载，换个 YouTube 来源吧',
+  err_bili: 'B站最近改了网站，下载工具暂时进不去（每天会自动更新）。先换个 YouTube 来源吧',
 }
 
 export type Lang = 'en' | 'zh'

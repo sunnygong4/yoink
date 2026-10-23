@@ -23,6 +23,22 @@ fi
 [ -f "$Y/logs/server.log" ] && [ "$(stat -c %s "$Y/logs/server.log")" -gt 20000000 ] \
   && tail -c 2000000 "$Y/logs/server.log" > "$Y/logs/server.log.tmp" && mv "$Y/logs/server.log.tmp" "$Y/logs/server.log"
 
+# yt-dlp stops working whenever YouTube / Bilibili change their sites, and fixes ship within days: once a day,
+# take the newest one (a restart picks it up, just below)
+STAMP="$Y/logs/.ytdlp-checked"
+if [ "$1" != "restart" ] && { [ ! -f "$STAMP" ] || [ -n "$(find "$STAMP" -mmin +1440)" ]; }; then
+  touch "$STAMP"
+  PY="$Y/server/.venv/bin/python"
+  before=$("$PY" -c 'import yt_dlp; print(yt_dlp.version.__version__)' 2>/dev/null)
+  uv pip install --quiet --python "$PY" -U yt-dlp yt-dlp-ejs >> "$Y/logs/supervisor.log" 2>&1
+  after=$("$PY" -c 'import yt_dlp; print(yt_dlp.version.__version__)' 2>/dev/null)
+  if [ "$before" != "$after" ]; then
+    log "yt-dlp $before -> $after: restarting"
+    pkill -f "$MATCH"
+    for i in $(seq 1 16); do pgrep -f "$MATCH" > /dev/null || break; sleep 0.5; done
+  fi
+fi
+
 if ! pgrep -f "$MATCH" > /dev/null; then
   log "server down -> starting"
   cd "$Y/server"   # not $Y: "python -m" puts the cwd on sys.path, and $Y/songstore would shadow the package

@@ -34,6 +34,11 @@ export type CatalogSong = {
   instant: boolean         // the karaoke site already has it: adding takes a second
 }
 
+// the name to give an upload when it's added (a catalog song, or a YouTube Music track's own details)
+export type UploadSong = { title: string; artist: string; album?: string | null; duration?: number | null; artwork?: string | null }
+// 找不到的歌: a YouTube Music song or YouTube video found for the search itself
+export type Upload = Source & { song_id: string | null }
+
 // an upload of a song on YouTube / Bilibili
 export type Source = {
   source: 'youtube' | 'bilibili'
@@ -55,6 +60,7 @@ export type CatalogResults = {
   artists: { name: string; genre: string | null }[]
   albums: SearchAlbum[]
   top: ({ kind: 'artist'; name: string; genre: string | null } | ({ kind: 'album' } & SearchAlbum)) | null
+  matched: number   // songs that really are what was searched (all its words in the name / artist / album)
 }
 
 export type ArtistAlbum = { title: string; artist: string; year: string; artwork: string | null; tracks: number | null; single: boolean }
@@ -150,7 +156,8 @@ export const api = {
   album: (key: string) => call<Album>(`/api/album?${new URLSearchParams({ key })}`),
   quick: (song: CatalogSong) => call<Song>('/api/songs/quick', song),
   sources: (song: CatalogSong, where: string) => call<Source[]>(`/api/sources?where=${where}`, song),
-  add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),
+  add: (r: Source, song?: UploadSong, preview = false) => call<Song>('/api/songs', { ...r, song, preview }),
+  uploads: (q: string) => call<Upload[]>(`/api/uploads?${new URLSearchParams({ q })}`),
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
   remove: (id: string) => fetch(`/api/songs/${id}`, { method: 'DELETE' }),
   forYou: (fresh = false) => call<CatalogSong[]>(`/api/foryou${fresh ? '?fresh=1' : ''}`),

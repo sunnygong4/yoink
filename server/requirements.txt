@@ -3,8 +3,8 @@
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 httpx==0.28.1
-yt-dlp==2026.8.19
-yt-dlp-ejs==0.8.0
+yt-dlp>=2026.10.21   # updated daily by supervise.sh
+yt-dlp-ejs>=0.8.0
 deno==2.9.7
 ytmusicapi==1.12.3
 python-multipart==0.0.32

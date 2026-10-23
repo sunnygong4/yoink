@@ -195,11 +195,49 @@ _MANGLED = re.compile(r"(8|16|32)\s*d|slowed|reverb|sped\s*up|nightcore|stereo
                       r"remix|8\s*bit|1\s*hour|一小时|循环", re.I)
 
 
+def relevance(q: str, *fields: str | None) -> float:
+    """How much of the search these fields hold: the share of its words found in them ("弹舌 mc找小六" in
+    "mc找小六 - 弹舌 (Official MV)" is 1.0)."""
+    words = [w for w in (flat(x) for x in q.split()) if w]
+    hay = flat(" ".join(f or "" for f in fields))
+    return sum(w in hay for w in words) / len(words) if words else 0.0
+
+
+def uploads(q: str, n: int = 12) -> list[dict]:
+    """找不到的歌: YouTube Music's songs for the query (real title / artist / album), then YouTube's videos,
+    for songs the store catalog doesn't know (niche, indie, covers)."""
+    key = f"uploads:{q.strip().lower()}"
+    with _lock:
+        hit = _cache.get(key)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return hit[1]
+    music = _pool.submit(lambda: ytmusic({"artist": "", "title": q.strip()}))
+    videos = _pool.submit(se.search_youtube, q.strip(), 10)
+    out, seen = [], set()
+    for lst in (music, videos):
+        try:
+            rows = lst.result()
+        except Exception as e:   # one side failing still shows the other
+            print(f"[catalog] uploads: {e}")
+            continue
+        for r in rows:
+            if r["id"] in seen or not r.get("duration") or r["duration"] > se.MAX_DURATION:
+                continue
+            seen.add(r["id"])
+            out.append({**r, "tags": r.get("tags") or se.tag(r)})
+    # what holds the most of the search first; YouTube Music's own tracks before videos when equal
+    out.sort(key=lambda r: -relevance(q, r["title"], r["channel"], r.get("album")))
+    out = out[:n]
+    with _lock:
+        _cache[key] = (time.time(), out)
+    return out
+
+
 def ytmusic(song: dict) -> list[dict]:
     """YouTube Music's official tracks for the song (the label's audio, exact album length), as search results."""
     from ytmusicapi import YTMusic   # default locale on purpose: localised result pages break its parser
     out = []
-    for x in YTMusic().search(f"{song['artist']} {song['title']}", filter="songs", limit=10):
+    for x in YTMusic().search(f"{song['artist']} {song['title']}".strip(), filter="songs", limit=10):
         if not x.get("videoId"):
             continue
         artists = ", ".join(a["name"] for a in x.get("artists") or [])
