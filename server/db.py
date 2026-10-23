@@ -70,6 +70,26 @@ create table if not exists profiles (
     bio text,
     show text
 );
+-- 听友群: groups of friends, their members, and the songs on the group's playlist
+create table if not exists groups (
+    id integer primary key,
+    name text not null,
+    owner integer not null references users(id),
+    created real not null
+);
+create table if not exists group_members (
+    group_id integer not null references groups(id),
+    user_id integer not null references users(id),
+    joined real not null,
+    primary key (group_id, user_id)
+);
+create table if not exists group_songs (
+    id integer primary key,
+    group_id integer not null references groups(id),
+    song_id text not null,
+    added_by integer not null references users(id),
+    added_at real not null
+);
 create table if not exists sessions (
     token text primary key,
     user_id integer not null references users(id),

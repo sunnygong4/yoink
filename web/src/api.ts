@@ -140,6 +140,17 @@ export const api = {
   addFriend: (name: string) => call<{ relation: Relation }>(`/api/friends/${encodeURIComponent(name)}`, {}),
   removeFriend: (name: string) => call<{ relation: Relation }>(`/api/friends/${encodeURIComponent(name)}`, undefined, 'DELETE'),
   now: (song_id: string | null, playing: boolean) => call('/api/now', { song_id, playing }),
+  groups: () => call<GroupSummary[]>('/api/groups'),
+  newGroup: (name: string) => call<{ id: number }>('/api/groups', { name }),
+  group: (id: number) => call<Group>(`/api/groups/${id}`),
+  addGroupMember: (id: number, name: string) => call(`/api/groups/${id}/members/${encodeURIComponent(name)}`, {}),
+  removeGroupMember: (id: number, name: string) => call(`/api/groups/${id}/members/${encodeURIComponent(name)}`, undefined, 'DELETE'),
+  addGroupSong: (id: number, song_id: string) => call(`/api/groups/${id}/songs`, { song_id }),
+  removeGroupSong: (id: number, row: number) => call(`/api/groups/${id}/songs/${row}`, undefined, 'DELETE'),
+  groupSession: (id: number, listen: boolean) => call<GroupState>(`/api/groups/${id}/session${listen ? '?listen=1' : ''}`),
+  groupControl: (id: number, c: { action: string; index?: number; pos?: number; from_index?: number }) =>
+    call<GroupState>(`/api/groups/${id}/session`, c),
+  stopGroupSession: (id: number) => call(`/api/groups/${id}/session`, undefined, 'DELETE'),
   setup: () => call<{ first_user: boolean }>('/api/setup'),
   login: (name: string, password: string) => call<User>('/api/login', { name, password }),
   register: (name: string, password: string, invite: string) => call<User>('/api/register', { name, password, invite }),
@@ -217,7 +228,8 @@ export function report(event: string, detail: Record<string, unknown> = {}) {
 export type Relation = 'self' | 'friends' | 'sent' | 'received' | 'none'
 export type NowPlaying = { song: Song; playing: boolean; at: number }
 export type Profile = {
-  name: string; joined: number; bio: string; relation: Relation; counts: { songs: number; friends: number }
+  name: string; joined: number; bio: string; relation: Relation
+  counts: { songs: number; friends: number | null } | null   // for friends (songs too when the library is on the page)
   show: Record<string, string> | null   // only on your own page: who sees what
   now?: NowPlaying | null
   recent?: { song_id: string; played_at: number; radio: number; title: string; artist: string; album: string | null; thumbnail: string | null }[]
@@ -231,6 +243,15 @@ export type Friends = {
   outgoing: { name: string; at: number }[]
 }
 export type Person = { name: string; relation: Relation }
+
+// 听友群
+export type GroupSummary = { id: number; name: string; members: string[]; songs: number; listening: number }
+export type GroupSession = { index: number; song_id: string; playing: boolean; pos: number; at: number; by: string; rev: number }
+export type GroupState = { session: GroupSession | null; song: Song | null; listeners: string[]; listening: boolean; now: number }
+export type Group = GroupState & {
+  id: number; name: string; owner: string | null; members: { name: string; joined: number }[]; can_add: string[]
+  playlist: (Song & { row_id: number; added_by_name: string; added_to_group: number })[]
+}
 
 // /admin
 export type AdminData = {

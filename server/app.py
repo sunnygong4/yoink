@@ -20,6 +20,7 @@ import library as lib
 import pages
 import search as se
 import social
+import groups
 
 app = FastAPI(title="Yoinker")
 
@@ -482,6 +483,84 @@ def add_friend(name: str, user=Depends(auth.current_user)):
 @app.delete("/api/friends/{name}")
 def remove_friend(name: str, user=Depends(auth.current_user)):
     return {"relation": social.remove_friend(user, name)}
+
+
+# ---------- 听友群 ----------
+
+class GroupName(BaseModel):
+    name: str
+
+
+class GroupSong(BaseModel):
+    song_id: str
+
+
+class GroupControl(BaseModel):
+    action: str
+    index: int | None = None
+    pos: float | None = None
+    from_index: int | None = None
+
+
+@app.get("/api/groups")
+def my_groups(user=Depends(auth.current_user)):
+    return groups.mine(user)
+
+
+@app.post("/api/groups")
+def new_group(body: GroupName, user=Depends(auth.current_user)):
+    return groups.create(user, body.name)
+
+
+@app.get("/api/groups/{gid}")
+def group_page(gid: int, user=Depends(auth.current_user)):
+    return groups.group(user, gid)
+
+
+@app.put("/api/groups/{gid}")
+def rename_group(gid: int, body: GroupName, user=Depends(auth.current_user)):
+    groups.rename(user, gid, body.name)
+    return {"ok": True}
+
+
+@app.post("/api/groups/{gid}/members/{name}")
+def add_group_member(gid: int, name: str, user=Depends(auth.current_user)):
+    groups.add_member(user, gid, name)
+    return {"ok": True}
+
+
+@app.delete("/api/groups/{gid}/members/{name}")
+def remove_group_member(gid: int, name: str, user=Depends(auth.current_user)):
+    groups.leave(user, gid, name)
+    return {"ok": True}
+
+
+@app.post("/api/groups/{gid}/songs")
+def add_group_song(gid: int, body: GroupSong, user=Depends(auth.current_user)):
+    groups.add_song(user, gid, body.song_id)
+    return {"ok": True}
+
+
+@app.delete("/api/groups/{gid}/songs/{row_id}")
+def remove_group_song(gid: int, row_id: int, user=Depends(auth.current_user)):
+    groups.remove_song(user, gid, row_id)
+    return {"ok": True}
+
+
+@app.get("/api/groups/{gid}/session")
+def group_session(gid: int, listen: bool = False, user=Depends(auth.current_user)):
+    return groups.session(user, gid, listen)
+
+
+@app.post("/api/groups/{gid}/session")
+def group_control(gid: int, body: GroupControl, user=Depends(auth.current_user)):
+    return groups.control(user, gid, body.action, body.index, body.pos, body.from_index)
+
+
+@app.delete("/api/groups/{gid}/session")
+def group_stop_listening(gid: int, user=Depends(auth.current_user)):
+    groups.stop_listening(user, gid)
+    return {"ok": True}
 
 
 @app.post("/api/plays")

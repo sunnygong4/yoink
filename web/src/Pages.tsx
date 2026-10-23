@@ -14,6 +14,8 @@ export type Page =
   | { kind: 'admin' }   // everyone, for an admin (not linked anywhere)
   | { kind: 'user'; name: string }   // someone's page: /usr/<name>
   | { kind: 'friends' }
+  | { kind: 'groups' }
+  | { kind: 'group'; id: number }
   | { kind: 'search'; q?: string }   // q: run this search when the page opens
   | { kind: 'history' }
   | { kind: 'device' }
@@ -33,6 +35,8 @@ export function urlFor(p: Page): string {
     case 'admin': return '/admin'
     case 'user': return `/usr/${encodeURIComponent(p.name)}`
     case 'friends': return '/friends'
+    case 'groups': return '/groups'
+    case 'group': return `/groups/${p.id}`
     case 'search': return p.q ? `/find?${new URLSearchParams({ q: p.q })}` : '/find'
     case 'history': return '/history'
     case 'device': return '/ipod'
@@ -60,6 +64,8 @@ export function pageFromUrl(): Page {
   if (kind === 'admin') return { kind: 'admin' }
   if (kind === 'usr' && a) return { kind: 'user', name: decodeURIComponent(a) }
   if (kind === 'friends') return { kind: 'friends' }
+  if (kind === 'groups' && a && /^\d+$/.test(a)) return { kind: 'group', id: Number(a) }
+  if (kind === 'groups') return { kind: 'groups' }
   if (kind === 'find') return { kind: 'search', q: new URLSearchParams(location.search).get('q') || undefined }
   if (kind === 'history') return { kind: 'history' }
   if (kind === 'ipod') return { kind: 'device' }

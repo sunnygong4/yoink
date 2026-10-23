@@ -6,6 +6,7 @@ import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import DevicePage, { IPodPicture, PhonePicture } from './Device'
 import AdminPage from './Admin'
 import { FriendsPage, ProfilePage, userPage } from './People'
+import { GroupPage, GroupsPage, type Together } from './Groups'
 import AudioTest from './AudioTest'
 import Import from './Import'
 import Login from './Login'
@@ -55,6 +56,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   useEffect(() => { content.current?.scrollTo(0, 0) }, [page])
 
   const refresh = useCallback(() => { api.songs().then(setSongs).catch(() => {}) }, [])
+  const [together, setTogether] = useState<Together>(null)   // the 听友群 this is listening with
   // friend requests waiting (the sidebar's badge)
   const [requests, setRequests] = useState(0)
   const loadFriends = useCallback(() => { api.friends().then(f => setRequests(f.incoming.length)).catch(() => {}) }, [])
@@ -123,7 +125,8 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
   return (
     <div className="itunes">
-      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)} />
+      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)}
+        together={together?.id ?? null} />
       <div className="frame">
         <aside className="sourcelist">
           <h4>{user.name}</h4>
@@ -139,6 +142,9 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <h4>{t('friendsHeading')}</h4>
           <button className={page.kind === 'friends' ? 'on' : ''} onClick={() => go({ kind: 'friends' })}>
             <span className="glyph">☺</span> <span>{t('friendsTitle')}</span> {requests > 0 && <em className="alert">{requests}</em>}
+          </button>
+          <button className={page.kind === 'groups' || page.kind === 'group' ? 'on' : ''} onClick={() => go({ kind: 'groups' })}>
+            <span className="glyph">♫</span> <span>{t('groupsTitle')}</span> {together && <em>🎧</em>}
           </button>
           <button className={page.kind === 'user' && page.name.toLowerCase() === user.name.toLowerCase() ? 'on' : ''} onClick={() => go(userPage(user.name))}>
             <span className="glyph">◍</span> <span>{t('myPage')}</span>
@@ -183,8 +189,17 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
               <button className="back" onClick={back}><I.Prev size={10} /> {t('back')}</button>
             </div>
           )}
+          {together && page.kind !== 'group' && (
+            <div className="notice together">🎧 {t('togetherBanner', { name: together.name })}
+              <button onClick={() => open({ kind: 'group', id: together.id })}>{t('openGroup')}</button>
+              <button onClick={() => setTogether(null)}>{t('stopListening')}</button>
+            </div>
+          )}
           {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
           {page.kind === 'user' && <ProfilePage key={page.name} name={page.name} me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
+          {page.kind === 'groups' && <GroupsPage open={open} />}
+          {page.kind === 'group' && <GroupPage key={page.id} id={page.id} me={user.name} library={library} open={open} onSong={onSong}
+            together={together} setTogether={setTogether} />}
           {page.kind === 'friends' && <FriendsPage me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'admin' && (user.is_admin ? <AdminPage /> : <p className="pad hint">{t('notFound')}</p>)}
           {page.kind === 'library' && <Library view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}

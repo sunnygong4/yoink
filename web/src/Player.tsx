@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, fmtTime, report, type Song } from './api'
+import { api, fmtTime, report, type GroupState, type Song } from './api'
 import { t } from './i18n'
 import * as I from './icons'
 import { useLyrics } from './Lyrics'
@@ -33,7 +33,7 @@ function start(a: HTMLAudioElement, why: string) {
 const SMART_AHEAD = 40   // seconds before the end of the last song: ask for a recommendation (it downloads meanwhile)
 
 /** The audio element, the bar at the bottom, the queue drawer and the full-screen view. */
-export default function Player({ q, byId, onSong, open, saved, online, pod, rerender }: {
+export default function Player({ q, byId, onSong, open, saved, online, pod, rerender, together = null }: {
   q: Queue
   byId: Map<string, Song>
   onSong: (s: Song) => void   // a song the library list doesn't have yet (a recommendation)
@@ -42,6 +42,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
   online: boolean
   pod?: Omit<PodProps, 'saved' | 'online' | 'onSong'>   // iPod mode: the iPod instead of the iTunes bar
   rerender: () => void
+  together?: number | null    // listening with this 听友群: the group's play state rules, controls go to everyone
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -146,25 +147,71 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
   }, [song, q, onSong])
 
   useEffect(() => {
-    if (!q.smart || q.repeat !== 'off' || !isLast || !ready || !duration) return
+    if (together || !q.smart || q.repeat !== 'off' || !isLast || !ready || !duration) return
     if (duration - time < SMART_AHEAD || time / duration > 0.6) recommend()
   }, [q.smart, q.repeat, isLast, ready, duration, time, recommend])
+
+  // ---------- listening together: follow the group's play state ----------
+  const group = useRef<GroupState | null>(null)
+  const pendingSeek = useRef<number | null>(null)   // where to start the group's song once it has loaded
+  const follow = useCallback((st: GroupState, sentAt: number) => {
+    group.current = st
+    const s = st.session
+    if (!s || !st.song) return
+    // where the group is now: its position when set, plus the time since (server-side), plus half the round trip
+    const expected = s.pos + (s.playing ? st.now - s.at + (Date.now() - sentAt) / 2000 : 0)
+    const a = audio.current
+    if (q.current !== s.song_id) {
+      onSong(st.song)
+      pendingSeek.current = expected
+      q.playNow(s.song_id)
+      return
+    }
+    if (!a || !a.src || a.src === SILENCE) return
+    if (a.readyState > 0 && Math.abs(a.currentTime - expected) > 1.5) a.currentTime = expected   // close enough to sing along
+    if (s.playing && a.paused) start(a, 'together').catch(() => {})
+    if (!s.playing && !a.paused) a.pause()
+  }, [q, onSong])
+  const send = useCallback((c: { action: string; index?: number; pos?: number; from_index?: number }) => {
+    if (!together) return
+    const t0 = Date.now()
+    api.groupControl(together, c).then(st => follow(st, t0)).catch(() => {})
+  }, [together, follow])
+  useEffect(() => {
+    if (!together) { group.current = null; return }
+    let live = true
+    const check = () => {
+      const t0 = Date.now()
+      api.groupSession(together, true).then(st => { if (live) follow(st, t0) }).catch(() => {})
+    }
+    check()
+    const timer = setInterval(check, 2000)
+    return () => { live = false; clearInterval(timer); api.stopGroupSession(together).catch(() => {}) }
+  }, [together, follow])
 
   const toggle = useCallback(() => {
     const a = audio.current
     if (!a || !ready) return
-    if (a.paused) start(a, 'toggle').catch(() => {})
-    else a.pause()
-  }, [ready])
-  const seek = useCallback((s: number) => { if (audio.current) audio.current.currentTime = s }, [])
-  const next = useCallback(() => q.next(), [q])
+    if (a.paused) { start(a, 'toggle').catch(() => {}); send({ action: 'play' }) }
+    else { a.pause(); send({ action: 'pause' }) }
+  }, [ready, send])
+  const seek = useCallback((s: number) => {
+    if (audio.current) audio.current.currentTime = s
+    send({ action: 'seek', pos: s })
+  }, [send])
+  const next = useCallback(() => {
+    if (together) send({ action: 'next', from_index: group.current?.session?.index })
+    else q.next()
+  }, [q, together, send])
   const prev = useCallback(() => {
-    if (audio.current && audio.current.currentTime > 3) audio.current.currentTime = 0   // like every music player
+    if (audio.current && audio.current.currentTime > 3) seek(0)   // like every music player
+    else if (together) send({ action: 'prev' })
     else q.prev()
-  }, [q])
+  }, [q, together, send, seek])
 
   async function ended() {
     if (audio.current?.src === SILENCE) return   // the iPhone unlock sound, not a song
+    if (together) { send({ action: 'next', from_index: group.current?.session?.index }); return }   // once, for everyone
     if (q.repeat === 'one') { seek(0); audio.current?.play(); return }
     if (isLast && q.repeat === 'off' && q.smart) await recommend()   // short song: it may not have asked yet
     q.next()
@@ -226,7 +273,10 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       onPlay={e => setPlaying(e.currentTarget.src !== SILENCE)} onPause={() => setPlaying(false)}
       onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
       onDurationChange={e => setDuration(e.currentTarget.duration)}
-      onLoadedMetadata={e => { if (isPhone) report('loaded', { src: e.currentTarget.src.slice(0, 12), d: Math.round(e.currentTarget.duration) }) }}
+      onLoadedMetadata={e => {
+        if (pendingSeek.current !== null) { e.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null }
+        if (isPhone) report('loaded', { src: e.currentTarget.src.slice(0, 12), d: Math.round(e.currentTarget.duration) })
+      }}
       onStalled={e => { if (isPhone) report('stalled', { rs: e.currentTarget.readyState, ns: e.currentTarget.networkState }) }}
       onAbort={e => { if (isPhone && !e.currentTarget.src.startsWith('data:')) report('abort', { rs: e.currentTarget.readyState, ns: e.currentTarget.networkState, sw: !!navigator.serviceWorker?.controller }) }}
       onEnded={ended} onError={e => {
@@ -249,7 +299,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
           <button className="round big" onClick={toggle} disabled={!ready} title={playing ? t('pause') : t('play')}>
             {playing ? <I.Pause size={20} /> : <I.Play size={20} />}
           </button>
-          <button className="round" onClick={next} disabled={!song || (isLast && q.repeat !== 'all')} title={t('next')}><I.Next size={16} /></button>
+          <button className="round" onClick={next} disabled={!song || (!together && isLast && q.repeat !== 'all')} title={t('next')}><I.Next size={16} /></button>
         </div>
         <div className="volume">
           <button className="flat" onClick={() => setVolume(volume ? 0 : 1)} title={t('volume')}>

@@ -945,3 +945,18 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .person-row .who:hover b { text-decoration: underline; }
 .person-row > .muted { margin-left: auto; }
 .person-row > .muted + button, .person-row .who + button { margin-left: auto; }
+
+/* ---------- 听友群 ---------- */
+.new-group { display: flex; gap: 8px; padding: 12px 16px 0; max-width: 520px; }
+.new-group input { flex: 1; height: 24px; padding: 0 8px; border: 1px solid #a5acb5; border-radius: 4px; font: inherit; }
+.group-faces { display: inline-flex; }
+.group-faces .avatar + .avatar { margin-left: -8px; box-shadow: 0 0 0 2px #fff, 0 1px 3px rgba(0, 0, 0, .3); }
+.group-faces.big .avatar + .avatar { margin-left: -14px; }
+.listeners { margin-top: 8px; font-size: 12px; color: #1a5bc4; }
+.member-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; }
+.member { display: inline-flex; align-items: center; gap: 4px; }
+.member .who { border: none; background: none; box-shadow: none; display: flex; align-items: center; gap: 6px; height: auto; padding: 0; }
+.member-row select { height: 24px; font: inherit; }
+.add-songs { margin: 0 0 10px; border-bottom: 1px solid #ddd; max-height: 340px; overflow-y: auto; background: #fafbfc; }
+.result.now { background: #dfeafe; }
+.notice.together { background: #e6efff; border-color: #9fbbea; }

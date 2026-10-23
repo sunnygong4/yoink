@@ -1,7 +1,8 @@
 """People's pages (/usr/<name>), friends, and what each person is playing right now.
 
-Each part of a page (playing now, recent plays, top artists, library, radio) is shown to everyone signed in,
-to friends only, or to nobody, as its owner chose."""
+Each part of a page (playing now, recent plays, top artists, library, radio) is either on the page (everyone signed
+in sees it), for friends only, or private, as its owner chose. Someone who isn't a friend sees only what's on the page:
+with nothing there, just the name. People are found by searching for them, never by browsing a list."""
 import json
 import random
 import threading
@@ -15,7 +16,7 @@ from i18n import tr
 
 SECTIONS = ("now", "recent", "top", "library", "radio")
 AUDIENCES = ("everyone", "friends", "nobody")
-DEFAULT_SHOW = {"now": "friends", "recent": "friends", "top": "everyone", "library": "friends", "radio": "friends"}
+DEFAULT_SHOW = {"now": "friends", "recent": "friends", "top": "friends", "library": "friends", "radio": "friends"}
 NOW_FRESH = 15 * 60   # a song reported longer ago than this isn't "playing now" any more
 
 
@@ -144,8 +145,12 @@ def profile(viewer: dict, name: str) -> dict:
     st = settings(uid)
     show = st["show"]
     c = conn()
-    counts = {"songs": c.execute("select count(*) from user_songs where user_id = ?", (uid,)).fetchone()[0],
-              "friends": c.execute("select count(*) from friends where (a = ? or b = ?) and accepted is not null", (uid, uid)).fetchone()[0]}
+    # how many songs / friends: for friends (and the library count when the library is on the page)
+    counts = None
+    if rel in ("self", "friends") or show["library"] == "everyone":
+        counts = {"songs": c.execute("select count(*) from user_songs where user_id = ?", (uid,)).fetchone()[0],
+                  "friends": c.execute("select count(*) from friends where (a = ? or b = ?) and accepted is not null",
+                                       (uid, uid)).fetchone()[0] if rel in ("self", "friends") else None}
     out = {"name": other["name"], "joined": other["created"], "bio": st["bio"], "relation": rel, "counts": counts,
            "show": show if rel == "self" else None}
     if _allowed(show["now"], rel):
@@ -193,7 +198,12 @@ def friends(viewer: dict) -> dict:
 
 
 def people(viewer: dict, q: str = "") -> list[dict]:
-    """Everyone else on the site (to find friends), with how they relate to the viewer."""
-    rows = conn().execute("select id, name from users where id != ? and name like ? order by name collate nocase limit 50",
-                          (viewer["id"], f"%{q.strip()}%")).fetchall()
+    """People whose name matches the search (to add as friends), with how they relate to the viewer. Only a search:
+    nothing for a blank one, and two letters at least (or the whole name), so the list of members can't be read off."""
+    q = q.strip()
+    if not q:
+        return []
+    like = f"%{q.replace('%', '').replace('_', '')}%"
+    rows = conn().execute("select id, name from users where id != ? and (name = ? or (length(?) >= 2 and name like ?)) "
+                          "order by name collate nocase limit 10", (viewer["id"], q, q, like)).fetchall()
     return [{"name": r["name"], "relation": relation(viewer["id"], r["id"])} for r in rows]

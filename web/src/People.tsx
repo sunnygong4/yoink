@@ -83,7 +83,9 @@ export function ProfilePage({ name, me, open, play, onSong, onFriends }: Common 
         <div className="ph-text">
           <h1>{p.name}</h1>
           {p.bio && <p className="bio">{p.bio}</p>}
-          <p className="muted">{t('joined', { when: ago(p.joined) })} · {t('songCount', { n: p.counts.songs })} · {t('friendCount', { n: p.counts.friends })}</p>
+          <p className="muted">{t('joined', { when: ago(p.joined) })}
+            {p.counts && <> · {t('songCount', { n: p.counts.songs })}</>}
+            {p.counts?.friends != null && <> · {t('friendCount', { n: p.counts.friends })}</>}</p>
           <div className="ph-buttons">
             {self ? <button onClick={() => setEditing(e => !e)}>{editing ? t('close') : t('editProfile')}</button>
               : <FriendButton name={p.name} relation={p.relation} onChange={r => { setP({ ...p, relation: r }); onFriends(); load() }} />}
