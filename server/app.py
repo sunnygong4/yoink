@@ -2,6 +2,7 @@
 import asyncio
 import json
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -50,6 +51,39 @@ class Credentials(BaseModel):
 @app.get("/api/me")
 def me(user=Depends(auth.current_user)):
     return user
+
+
+@app.get("/api/admin")
+def admin(user=Depends(auth.current_user)):
+    """Everyone, for an admin: their libraries, listening and devices, and what was played lately. Anyone else
+    gets a 404, as if there were no such page."""
+    if not user["is_admin"]:
+        raise HTTPException(404, "Not Found")
+    from db import conn
+    c = conn()
+    people = []
+    for u in c.execute("select u.id, u.name, u.is_admin, u.created, i.name as invited_by from users u "
+                       "left join users i on i.id = u.invited_by order by u.created"):
+        n_songs = c.execute("select count(*) from user_songs where user_id = ?", (u["id"],)).fetchone()[0]
+        plays = c.execute("select count(*), max(played_at), sum(radio) from plays where user_id = ?", (u["id"],)).fetchone()
+        week = c.execute("select count(*) from plays where user_id = ? and played_at > ?",
+                         (u["id"], time.time() - 7 * 86400)).fetchone()[0]
+        devices = [dict(d) for d in c.execute("select name, created, last_seen from devices where user_id = ?", (u["id"],))]
+        top = [dict(r) for r in c.execute(
+            "select artist, count(*) as n from plays where user_id = ? and artist is not null and artist != '' "
+            "group by artist order by n desc limit 3", (u["id"],))]
+        people.append({"id": u["id"], "name": u["name"], "is_admin": bool(u["is_admin"]), "created": u["created"],
+                       "invited_by": u["invited_by"], "songs": n_songs, "plays": plays[0], "last_played": plays[1],
+                       "smart_plays": plays[2] or 0, "plays_week": week, "devices": devices, "top_artists": top})
+    recent = [dict(r) for r in c.execute(
+        "select p.played_at, p.title, p.artist, p.radio, u.name as user from plays p join users u on u.id = p.user_id "
+        "order by p.played_at desc limit 40")]
+    store = [lib.store.get(sid) for sid in lib.store.ids()]
+    songs = [d for d in store if d and d.get("music_status")]
+    stats = {"store_songs": len(songs), "ready": sum(d.get("music_status") == "ready" for d in songs),
+             "smart_songs": sum(bool(d.get("music_radio")) for d in songs),
+             "invites_open": c.execute("select count(*) from invites where used_by is null").fetchone()[0]}
+    return {"people": people, "recent": recent, "stats": stats}
 
 
 @app.get("/api/setup")

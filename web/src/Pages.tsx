@@ -10,7 +10,8 @@ import { flat, leadArtist } from './text'
 // In the app an artist / album is opened by name; the server answers with its slug (pinyin for Chinese
 // names) and the address bar switches to that.
 export type Page =
-  | { kind: 'library' }
+  | { kind: 'library'; view?: 'albums' | 'artists' }   // songs when no view
+  | { kind: 'admin' }   // everyone, for an admin (not linked anywhere)
   | { kind: 'search'; q?: string }   // q: run this search when the page opens
   | { kind: 'history' }
   | { kind: 'device' }
@@ -26,7 +27,8 @@ export const albumPage = (artist: string, title: string): Page =>
 
 export function urlFor(p: Page): string {
   switch (p.kind) {
-    case 'library': return '/'
+    case 'library': return p.view ? `/${p.view}` : '/'
+    case 'admin': return '/admin'
     case 'search': return p.q ? `/find?${new URLSearchParams({ q: p.q })}` : '/find'
     case 'history': return '/history'
     case 'device': return '/ipod'
@@ -50,6 +52,8 @@ export function preferPod(on: boolean) {
 
 export function pageFromUrl(): Page {
   const [kind, a, b] = location.pathname.split('/').filter(Boolean)
+  if (kind === 'albums' || kind === 'artists') return { kind: 'library', view: kind }
+  if (kind === 'admin') return { kind: 'admin' }
   if (kind === 'find') return { kind: 'search', q: new URLSearchParams(location.search).get('q') || undefined }
   if (kind === 'history') return { kind: 'history' }
   if (kind === 'ipod') return { kind: 'device' }

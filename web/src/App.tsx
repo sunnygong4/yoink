@@ -4,6 +4,7 @@ import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
 import DevicePage, { IPodPicture, PhonePicture } from './Device'
+import AdminPage from './Admin'
 import AudioTest from './AudioTest'
 import Import from './Import'
 import Login from './Login'
@@ -120,9 +121,15 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
       <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)} />
       <div className="frame">
         <aside className="sourcelist">
-          <h4>{t('libraryHeading')}</h4>
-          <button className={page.kind === 'library' ? 'on' : ''} onClick={() => go({ kind: 'library' })}>
-            <I.Library size={15} /> <span>{t('library')}</span> <em>{library.length || ''}</em>
+          <h4>{user.name}</h4>
+          <button className={page.kind === 'library' && !page.view ? 'on' : ''} onClick={() => go({ kind: 'library' })}>
+            <I.Library size={15} /> <span>{t('viewSongs')}</span> <em>{library.length || ''}</em>
+          </button>
+          <button className={page.kind === 'library' && page.view === 'albums' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'albums' })}>
+            <span className="glyph">◉</span> <span>{t('viewAlbums')}</span>
+          </button>
+          <button className={page.kind === 'library' && page.view === 'artists' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'artists' })}>
+            <span className="glyph">♪</span> <span>{t('viewArtists')}</span>
           </button>
           <h4>{t('storeHeading')}</h4>
           <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>
@@ -139,15 +146,17 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
               <PhonePicture small /> <span>{t('thisDevice')}</span> <em>{saved.size || ''}</em>
             </button>
           )}
-          <h4>{user.name}</h4>
-          <button className={page.kind === 'history' ? 'on' : ''} onClick={() => go({ kind: 'history' })}>
-            <span className="glyph">◷</span> <span>{t('history')}</span>
-          </button>
-          <button onClick={invite}><I.Plus size={15} /> <span>{t('invite')}</span></button>
-          <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }}>
-            <span className="glyph">文</span> <span>{t('language')}</span>
-          </button>
-          <button onClick={onLogout}><I.Close size={15} /> <span>{t('logout')}</span></button>
+          {/* the rest, as one row of buttons at the bottom (like iTunes' + / shuffle / repeat under its list) */}
+          <div className="source-foot">
+            <button className={page.kind === 'history' ? 'on' : ''} onClick={() => go({ kind: 'history' })} title={t('history')}>
+              <span className="glyph">◷</span>
+            </button>
+            <button onClick={invite} title={t('invite')}><I.Plus size={13} /></button>
+            <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }} title={t('languageHint')}>
+              <span className="glyph">文</span>
+            </button>
+            <button onClick={onLogout} title={t('logout')}><I.Close size={12} /></button>
+          </div>
         </aside>
 
         <main className="content" ref={content}>
@@ -163,7 +172,8 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             </div>
           )}
           {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
-          {page.kind === 'library' && <Library songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
+          {page.kind === 'admin' && (user.is_admin ? <AdminPage /> : <p className="pad hint">{t('notFound')}</p>)}
+          {page.kind === 'library' && <Library view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search key={page.q ?? ''} initial={page.q} byId={byId} currentId={q.current} open={open} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
@@ -237,7 +247,10 @@ function groupAlbums(songs: Song[]): Item[] {
   return items
 }
 
-function Library({ songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+type View = 'songs' | 'albums' | 'artists'
+
+function Library({ view, onView, songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+  view: View; onView: (v: View) => void
   songs: Song[]; saved: Set<string>; online: boolean
   currentId?: string; open: (p: Page) => void; onImport: () => void; onRemove: (id: string) => void
 }) {
@@ -270,7 +283,7 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
   const albumKey = (s: Song) => (s.album ? `${flat(s.album)}|${flat(leadArtist(s.artist))}` : '')
   const flow: FlowAlbum[] = []
   const flowSongs = new Map<string, Song[]>()
-  if (prefs.view === 'albums') {
+  if (view === 'albums') {
     for (const s of shown) {
       const k = albumKey(s)
       if (!k) continue
@@ -283,7 +296,7 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
     for (const a of flow) a.count = flowSongs.get(a.key)!.length
   }
   const pickedSongs = picked ? flowSongs.get(picked) : undefined
-  const items = (prefs.view === 'albums'
+  const items = (view === 'albums'
     ? (pickedSongs ? pickedSongs.map(song => ({ kind: 'song', song }) as Item) : groupAlbums(shown))
     : shown.map(song => ({ kind: 'song', song }) as Item))
     .sort((a, b) => {
@@ -373,8 +386,9 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
         <button onClick={() => play(order)} disabled={!order.length}><I.Play size={12} /> {t('playAll')}</button>
         <button onClick={() => play(shuffle(order))} disabled={!order.length}><I.Shuffle size={12} /> {t('shuffle')}</button>
         <nav className="seg view-seg">
-          <button className={prefs.view === 'songs' ? 'on' : ''} onClick={() => setPrefs(p => ({ ...p, view: 'songs' }))}>{t('viewSongs')}</button>
-          <button className={prefs.view === 'albums' ? 'on' : ''} onClick={() => setPrefs(p => ({ ...p, view: 'albums' }))}>{t('viewAlbums')}</button>
+          <button className={view === 'songs' ? 'on' : ''} onClick={() => onView('songs')}>{t('viewSongs')}</button>
+          <button className={view === 'albums' ? 'on' : ''} onClick={() => onView('albums')}>{t('viewAlbums')}</button>
+          <button className={view === 'artists' ? 'on' : ''} onClick={() => onView('artists')}>{t('viewArtists')}</button>
         </nav>
         <span className="grow" />
         <label className="searchfield">
@@ -384,7 +398,7 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
             onKeyDown={e => { if (e.key === 'Enter' && filter.trim()) open({ kind: 'search', q: filter.trim() }) }} />
         </label>
       </div>
-      {prefs.view === 'albums' && flow.length > 0 && (
+      {view === 'albums' && flow.length > 0 && (
         <CoverFlow albums={[...flow].sort((a, b) => {
           // the row follows the list's sort; albums are compared by their first song
           const ia = items.findIndex(it => (it.kind === 'album' ? it.group.key : albumKey(it.song)) === a.key)
@@ -394,7 +408,9 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
           onPlay={k => play((flowSongs.get(k) ?? []).filter(s => s.status === 'ready').map(s => s.id))}
           onOpen={a => open(albumPage(a.artist, a.album))} />
       )}
-      {songs.length === 0 ? (
+      {view === 'artists' && songs.length > 0 ? (
+        <ArtistGrid songs={shown} open={open} play={ids => play(ids)} playable={playable} />
+      ) : songs.length === 0 ? (
         <div className="empty">
           <p>{t('emptyLibrary')}</p>
           <button onClick={onImport}>{t('importBtn')}</button>
@@ -418,6 +434,40 @@ function Library({ songs, saved, online, currentId, open, onImport, onRemove, pl
         </table>
       )}
     </>
+  )
+}
+
+/** The library by artist: one tile each (their cover, how many songs), sorted by name; a click opens their page. */
+function ArtistGrid({ songs, open, play, playable }: {
+  songs: Song[]; open: (p: Page) => void; play: (ids: string[]) => void; playable: (s: Song) => boolean
+}) {
+  const collator = new Intl.Collator(getLang() === 'zh' ? 'zh' : 'en', { numeric: true, sensitivity: 'base' })
+  const by = new Map<string, { name: string; songs: Song[]; cover: string | null }>()
+  for (const s of songs) {
+    const name = leadArtist(s.artist) || s.artist
+    const k = flat(name)
+    const a = by.get(k) ?? { name, songs: [], cover: null }
+    a.songs.push(s)
+    a.cover ??= s.thumbnail
+    by.set(k, a)
+  }
+  const artists = [...by.values()].sort((a, b) => collator.compare(a.name, b.name))
+  return (
+    <div className="artist-grid">
+      {artists.map(a => {
+        const ids = a.songs.filter(playable).map(s => s.id)
+        return (
+          <div key={a.name} className="artist-tile">
+            <button className="face" onClick={() => open(artistPage(a.name))} title={a.name}>
+              {a.cover ? <img src={a.cover} alt="" loading="lazy" /> : <span>♫</span>}
+            </button>
+            <button className="name" onClick={() => open(artistPage(a.name))}>{a.name}</button>
+            <span className="sub">{t('songCount', { n: a.songs.length })}</span>
+            {ids.length > 0 && <button className="mini play" onClick={() => play(ids)} title={t('play')}><I.Play size={10} /></button>}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

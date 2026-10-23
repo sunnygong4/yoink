@@ -132,6 +132,7 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 
 export const api = {
   me: () => call<User>('/api/me'),
+  admin: () => call<AdminData>('/api/admin'),
   setup: () => call<{ first_user: boolean }>('/api/setup'),
   login: (name: string, password: string) => call<User>('/api/login', { name, password }),
   register: (name: string, password: string, invite: string) => call<User>('/api/register', { name, password, invite }),
@@ -200,6 +201,15 @@ export function report(event: string, detail: Record<string, unknown> = {}) {
     navigator.sendBeacon?.('/api/clientlog', new Blob([JSON.stringify({ event, standalone, ua: navigator.userAgent, ...detail })],
       { type: 'application/json' }))
   } catch { /* nothing to report with */ }
+}
+
+// /admin
+export type AdminData = {
+  people: { id: number; name: string; is_admin: boolean; created: number; invited_by: string | null; songs: number
+    plays: number; last_played: number | null; smart_plays: number; plays_week: number
+    devices: { name: string; created: number; last_seen: number | null }[]; top_artists: { artist: string; n: number }[] }[]
+  recent: { played_at: number; title: string; artist: string; radio: number; user: string }[]
+  stats: { store_songs: number; ready: number; smart_songs: number; invites_open: number }
 }
 
 export function fmtTime(s: number | null | undefined) {
