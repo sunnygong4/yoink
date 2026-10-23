@@ -327,7 +327,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
               <div className="lcd-sub">
                 {preparing ? t('preparing') : <>
                   <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
-                  {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
+                  {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!, song.album_id))}>{song.album}</a></>}
                 </>}
               </div>
               <div className="lcd-seek">

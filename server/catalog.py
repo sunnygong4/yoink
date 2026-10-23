@@ -44,6 +44,7 @@ def _itunes(q: str, country: str) -> list[dict]:
             "duration": round((t.get("trackTimeMillis") or 0) / 1000) or None,
             "artwork": art.replace("100x100bb", "600x600bb"),
             "year": (t.get("releaseDate") or "")[:4],
+            "album_id": t.get("collectionId"),   # the album page opens by it (the album's artist may be someone else)
         })
     return out
 
@@ -146,7 +147,7 @@ def albums(q: str, limit: int = 8) -> list[dict]:
         k = (norm(clean_title(a.get("collectionName") or "")), norm(lead_artist(a.get("artistName") or "")))
         if a.get("collectionName") and k not in seen:
             seen.add(k)
-            out.append({"title": a["collectionName"], "artist": a.get("artistName") or "",
+            out.append({"title": a["collectionName"], "artist": a.get("artistName") or "", "id": a.get("collectionId"),
                         "year": (a.get("releaseDate") or "")[:4],
                         "artwork": (a.get("artworkUrl100") or "").replace("100x100bb", "400x400bb") or None})
     return out[:limit]

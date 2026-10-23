@@ -184,6 +184,7 @@ class CatalogSong(BaseModel):
     album: str | None = None
     duration: float | None = None
     artwork: str | None = None
+    album_id: int | None = None   # the store's album id (the album page opens by it)
 
 
 @app.get("/api/catalog")
@@ -211,13 +212,14 @@ def catalog_search(q: str, user=Depends(auth.current_user)):
 
 class AlbumAdd(BaseModel):
     key: str
+    id: int | None = None
 
 
 @app.post("/api/album/add")
 def album_add(body: AlbumAdd, req: Request, user=Depends(auth.current_user)):
     """Every track of the album into the library, downloading what isn't on the server yet."""
-    artist, title = pages.resolve_album(body.key)
-    a = pages.album(artist, title, i18n.lang_of(req.headers))
+    artist, title, known_id = pages.resolve_album(body.key)
+    a = pages.album(artist, title, i18n.lang_of(req.headers), body.id or known_id)
     if not a:
         raise HTTPException(404, i18n.tr("Album not found", "没找到这张专辑"))
     mine = lib.owned(user)
@@ -322,17 +324,17 @@ def cover_proxy(url: str, _=Depends(auth.current_user)):
 
 
 @app.get("/api/album")
-def album_page(key: str, req: Request, user=Depends(auth.current_user)):
-    """key: "<artist slug>/<album slug>" or "<artist name>/<album title>"."""
-    artist, title = pages.resolve_album(key)
+def album_page(key: str, req: Request, id: int | None = None, user=Depends(auth.current_user)):
+    """key: "<artist slug>/<album slug>" or "<artist name>/<album title>"; id: the store's album id (exact)."""
+    artist, title, known_id = pages.resolve_album(key)
     try:
-        a = pages.album(artist, title, i18n.lang_of(req.headers))
+        a = pages.album(artist, title, i18n.lang_of(req.headers), id or known_id)
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Couldn't load the album: {e}", f"加载专辑失败：{e}"))
     if not a:
         raise HTTPException(404, i18n.tr("Album not found", "没找到这张专辑"))
     return {**a, "tracks": mark([dict(s) for s in a["tracks"]], user),
-            "slug": pages.remember_album(a["artist"], a["title"]), "artist_slug": pages.remember("artist", a["artist"])}
+            "slug": pages.remember_album(a["artist"], a["title"], a.get("id")), "artist_slug": pages.remember("artist", a["artist"])}
 
 
 @app.get("/api/suggest")
@@ -419,8 +421,9 @@ def songs(user=Depends(auth.current_user)):
 
 
 def _doc_or_404(sid: str) -> dict:
+    """A song Yoinker has, or one the karaoke site downloaded (its audio is on the server, Yoinker never fetched it)."""
     doc = lib.store.get(sid)
-    if not doc or not doc.get("music_status"):
+    if not doc or not (doc.get("music_status") or lib.store.file(sid, AUDIO) or lib.source_file(doc)):
         raise HTTPException(404, i18n.tr("No such song", "没有这首歌"))
     return doc
 

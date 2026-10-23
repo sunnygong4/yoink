@@ -23,11 +23,13 @@ export type Page =
   | { kind: 'iphone' }  // the whole app as an iPod classic (what iPhones open)
   | { kind: 'audiotest' }   // which ways of playing audio this device allows
   | { kind: 'artist'; key: string }   // slug or name
-  | { kind: 'album'; key: string }    // "<artist>/<album>": slugs, or names (each part URL-encoded)
+  | { kind: 'album'; key: string; id?: number }    // "<artist>/<album>": slugs, or names (each part URL-encoded); id: the store's album id
 
 export const artistPage = (name: string): Page => ({ kind: 'artist', key: name })
-export const albumPage = (artist: string, title: string): Page =>
-  ({ kind: 'album', key: `${encodeURIComponent(artist)}/${encodeURIComponent(title)}` })
+/** An album's page; with the store's album id when known (exact: the album may be filed under someone else than
+ *  the singer whose song links here, like an anime soundtrack under its composer). */
+export const albumPage = (artist: string, title: string, id?: number | null): Page =>
+  ({ kind: 'album', key: `${encodeURIComponent(artist)}/${encodeURIComponent(title)}`, ...(id ? { id } : {}) })
 
 export function urlFor(p: Page): string {
   switch (p.kind) {
@@ -44,7 +46,7 @@ export function urlFor(p: Page): string {
     case 'iphone': return '/iphone'
     case 'audiotest': return '/audiotest'
     case 'artist': return `/artist/${encodeURIComponent(p.key)}`
-    case 'album': return `/album/${p.key}`
+    case 'album': return `/album/${p.key}${p.id ? `?id=${p.id}` : ''}`
   }
 }
 
@@ -74,7 +76,10 @@ export function pageFromUrl(): Page {
   if (kind === 'audiotest') return { kind: 'audiotest' }
   if (!kind && wantsPod()) return { kind: 'iphone' }
   if (kind === 'artist' && a) return { kind: 'artist', key: decodeURIComponent(a) }
-  if (kind === 'album' && a && b) return { kind: 'album', key: `${a}/${b}` }
+  if (kind === 'album' && a && b) {
+    const id = Number(new URLSearchParams(location.search).get('id')) || undefined
+    return { kind: 'album', key: `${a}/${b}`, ...(id ? { id } : {}) }
+  }
   return { kind: 'library' }
 }
 
@@ -252,7 +257,7 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
                 <div className="result-text">
                   <span className="name">{s.title}</span>
                   <span className="sub">
-                    {s.album && <a onClick={() => open(albumPage(s.artist, s.album!))}>{s.album}</a>} · {fmtTime(s.duration)}
+                    {s.album && <a onClick={() => open(albumPage(s.artist, s.album!, s.album_id))}>{s.album}</a>} · {fmtTime(s.duration)}
                   </span>
                 </div>
                 <button className="pill" onClick={() => actions.play(mine.map(x => x.id), i)}><I.Play size={11} /> {t('play')}</button>
@@ -294,7 +299,7 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
           <h2 className="section-title">{title as string}</h2>
           <div className="covers">
             {(list as typeof albums).map(x => (
-              <button key={x.title} className="cover-tile" onClick={() => open(albumPage(x.artist, x.title))}>
+              <button key={x.title} className="cover-tile" onClick={() => open(albumPage(x.artist, x.title, x.id))}>
                 {x.artwork ? <img src={x.artwork} alt="" loading="lazy" /> : <span className="art" />}
                 <span className="name">{x.title}</span>
                 <span className="sub">{x.year}</span>
@@ -308,8 +313,8 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
 }
 
 /** iTunes 11's album view: the page takes the cover's colour; the tracks are a plain numbered list beside it. */
-export function AlbumPage({ pageKey, byId, currentId, open, ...actions }: Common & { pageKey: string }) {
-  const { data: al, error } = useLoad<Album>(() => api.album(pageKey), [pageKey])
+export function AlbumPage({ pageKey, albumId, byId, currentId, open, ...actions }: Common & { pageKey: string; albumId?: number }) {
+  const { data: al, error } = useLoad<Album>(() => api.album(pageKey, albumId), [pageKey, albumId])
   const [added, setAdded] = useState<Record<string, string>>({})
   const [picker, setPicker] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -338,7 +343,7 @@ export function AlbumPage({ pageKey, byId, currentId, open, ...actions }: Common
     setBusy(null)
   }
   async function addAll() {
-    try { const { queued } = await api.addAlbum(al!.slug); setNote(t('albumAdding', { n: queued })) } catch (e) { alert((e as Error).message) }
+    try { const { queued } = await api.addAlbum(al!.slug, al!.id); setNote(t('albumAdding', { n: queued })) } catch (e) { alert((e as Error).message) }
   }
 
   return (

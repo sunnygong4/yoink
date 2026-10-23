@@ -52,11 +52,13 @@ def view(doc: dict) -> dict:
         "artist": artist or doc.get("channel") or "",
         "artist_main": artists.canonical(artist or doc.get("channel") or ""),   # 邓丽君 / Teresa Teng -> 鄧麗君
         "album": doc.get("album"),
+        "album_id": doc.get("album_id"),
         "duration": doc.get("duration"),
         "thumbnail": doc.get("artwork") or doc.get("thumbnail"),
         "url": doc.get("url"),
         "source_title": doc.get("title"),
-        "status": doc.get("music_status"),
+        # a song the karaoke site downloaded: ready to play, though Yoinker never fetched it
+        "status": doc.get("music_status") or ("ready" if store.file(doc["id"], AUDIO) else None),
         "progress": doc.get("music_progress"),
         "error": doc.get("music_error"),
         "error_code": doc.get("music_error_code"),
@@ -305,7 +307,7 @@ def canonical(song: dict | None) -> dict:
     if not song:
         return {}
     return {"display_title": song["title"], "display_artist": song["artist"], "album": song.get("album"),
-            "artwork": song.get("artwork")}
+            "artwork": song.get("artwork"), "album_id": song.get("album_id")}
 
 
 def add(r: dict, user: dict, song: dict | None = None, radio: bool = False) -> dict:
@@ -351,6 +353,13 @@ def add_album(tracks: list[dict], user: dict) -> dict:
 
 def keep(sid: str, user: dict) -> dict:
     """Into this person's library (a recommended song they liked, or one someone else already downloaded)."""
+    doc = store.get(sid)
+    if not doc.get("music_status"):
+        if not store.file(sid, AUDIO):
+            return _queue(sid, {}, user)   # only the karaoke site's video: take the audio from it
+        # the karaoke site's song: Yoinker's from now on (named and dated like one)
+        store.update(sid, music_status="ready", added_by=doc.get("added_by") or user["name"],
+                     added_at=doc.get("added_at") or time.time())
     own(sid, user)
     doc = store.get(sid)
     if doc.get("music_radio"):

@@ -83,6 +83,7 @@ def _song(t: dict) -> dict:
     return {"key": catalog.song_key(t["artistName"], t["trackName"]), "title": title, "artist": t["artistName"],
             "album": t.get("collectionName") or "", "duration": round((t.get("trackTimeMillis") or 0) / 1000) or None,
             "artwork": _art(t.get("artworkUrl100")), "year": (t.get("releaseDate") or "")[:4], "versions": 1,
+            "album_id": t.get("collectionId"),
             "track": t.get("trackNumber"), "disc": t.get("discNumber")}
 
 
@@ -337,7 +338,7 @@ def _artist(name: str) -> dict:
             if k in seen:
                 continue
             seen.add(k)
-            albums.append({"title": a["collectionName"], "artist": a.get("artistName") or shown,
+            albums.append({"title": a["collectionName"], "artist": a.get("artistName") or shown, "id": a.get("collectionId"),
                            "year": (a.get("releaseDate") or "")[:4], "artwork": _art(a.get("artworkUrl100"), 400),
                            "tracks": a.get("trackCount"),
                            "single": bool(re.search(r"\s-\s(single|ep)$", a["collectionName"], re.I)) or (a.get("trackCount") or 0) <= 3})
@@ -408,9 +409,11 @@ def save_media(name: str, kind: str, data: bytes, ext: str):
 
 # ---------- album ----------
 
-def album(artist_name: str, title: str, lang: str) -> dict | None:
-    key = ("album", flat(artist_name), flat(title), lang)
-    a = _cached(key, lambda: _album(artist_name, title, lang))
+def album(artist_name: str, title: str, lang: str, album_id: int | None = None) -> dict | None:
+    """By the store's album id when the link has one (it's exact: the album's artist may be someone else than the
+    singer whose song led here), else by name."""
+    key = ("album", f"id:{album_id}", lang) if album_id else ("album", flat(artist_name), flat(title), lang)
+    a = _cached(key, lambda: (_album_by_id(album_id, lang) if album_id else None) or _album(artist_name, title, lang))
     if a is None:
         _cache_drop(key)   # not found may be a hiccup: ask again next time
     return a
@@ -418,6 +421,58 @@ def album(artist_name: str, title: str, lang: str) -> dict | None:
 
 # stores to try after the artist's own: Japanese / Korean / Chinese-language music often isn't in the US one
 STORES = ("US", "JP", "TW", "KR", "GB")
+
+
+def _album_by_id(album_id: int, lang: str) -> dict | None:
+    """The album the store knows by this id, from whichever store has it (with its tracks). Albums only streamed,
+    not sold (Queen's Anthems), come without tracks from every store's lookup: those are read off Apple Music's page."""
+    found = None
+    for country in (*STORES, "HK"):
+        rows = _client.get("https://itunes.apple.com/lookup", params={"id": album_id, "entity": "song", "country": country}).json().get("results") or []
+        best = next((r for r in rows if r.get("wrapperType") == "collection"), None)
+        tracks = [t for t in rows if t.get("wrapperType") == "track"]
+        if best and tracks:
+            return _album_page(best, tracks, lang)
+        found = found or (best and (best, country))
+    if found:
+        tracks = _streamed_tracks(*found)
+        if tracks:
+            return _album_page(found[0], tracks, lang)
+    return None
+
+
+def _streamed_tracks(album: dict, country: str) -> list[dict]:
+    """An album's tracks from its Apple Music page (title, number, length), shaped like the store's own."""
+    try:
+        r = _client.get(f"https://music.apple.com/{country.lower()}/album/{album['collectionId']}", timeout=20)
+        m = re.search(r'<script type="application/json" id="serialized-server-data">(.*?)</script>', r.text, re.S)
+        data = json.loads(m.group(1)) if m else None
+    except (httpx.HTTPError, ValueError):
+        return []
+    out = []
+
+    def walk(o, disc):
+        if isinstance(o, dict):
+            if o.get("title") and isinstance(o.get("duration"), (int, float)) and o.get("trackNumber"):
+                out.append({"wrapperType": "track", "trackName": o["title"], "artistName": album.get("artistName") or "",
+                            "collectionName": album.get("collectionName"), "collectionId": album.get("collectionId"),
+                            "trackTimeMillis": o["duration"], "trackNumber": o["trackNumber"], "discNumber": disc,
+                            "artworkUrl100": album.get("artworkUrl100"), "releaseDate": album.get("releaseDate")})
+                return
+            for v in o.values():
+                walk(v, disc)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v, disc)
+
+    # each track list on the page is a disc
+    sections = [x for x in (((data or {}).get("data") or [{}])[0].get("data") or {}).get("sections") or []
+                if "track-list" in str(x.get("id", ""))]
+    for disc, sec in enumerate(sections, 1):
+        walk(sec, disc)
+    if not out and data:
+        walk(data, 1)
+    return out
 
 
 def _album(artist_name: str, title: str, lang: str) -> dict | None:
@@ -449,6 +504,15 @@ def _album(artist_name: str, title: str, lang: str) -> dict | None:
                 break
             if country != home:
                 best = max(search(country), key=score, default=None)
+        # the album may be filed under someone else (an anime soundtrack under its composer, not the singer): its
+        # title alone, if that's an exact match
+        for country in dict.fromkeys((home, *STORES)):
+            if best and score(best) >= 4:
+                break
+            rows = _client.get("https://itunes.apple.com/search", params={
+                "term": title, "entity": "album", "limit": 25, "country": country}).json().get("results") or []
+            exact = [r for r in rows if flat(catalog.clean_title(r.get("collectionName") or "")) == want or flat(r.get("collectionName")) == flat(title)]
+            best = exact[0] if exact else best
     if not best or score(best) < 4:
         return None
     # the tracks: some stores list an album but not its songs (the US one has Kuuchuu Camp, without tracks)
@@ -459,6 +523,10 @@ def _album(artist_name: str, title: str, lang: str) -> dict | None:
             if t.get("wrapperType") == "track"]
         if tracks:
             break
+    return _album_page(best, tracks, lang)
+
+
+def _album_page(best: dict, tracks: list[dict], lang: str) -> dict:
     songs = [_song(t) for t in tracks if t.get("wrapperType") == "track" and t.get("trackName")]
     songs.sort(key=lambda s: (s["disc"] or 1, s["track"] or 0))
     description = None
@@ -469,7 +537,8 @@ def _album(artist_name: str, title: str, lang: str) -> dict | None:
             description = (a.get("strDescriptionCN") if lang == "zh" else None) or a.get("strDescriptionEN")
     except (httpx.HTTPError, ValueError):
         pass
-    return {"title": best["collectionName"], "artist": best["artistName"], "year": (best.get("releaseDate") or "")[:4],
+    return {"title": best["collectionName"], "artist": best["artistName"], "id": best.get("collectionId"),
+            "year": (best.get("releaseDate") or "")[:4],
             "artwork": _art(best.get("artworkUrl100")), "genre": best.get("primaryGenreName"),
             "copyright": best.get("copyright"), "description": description, "tracks": songs}
 
@@ -492,10 +561,10 @@ def remember(kind: str, name: str) -> str:
     return s
 
 
-def remember_album(artist_name: str, title: str) -> str:
+def remember_album(artist_name: str, title: str, album_id: int | None = None) -> str:
     s = f"{slug(artist_name)}/{slug(title)}"
     conn().execute("insert or replace into slugs (kind, slug, value) values ('album', ?, ?)",
-                   (s, json.dumps([artist_name, title], ensure_ascii=False)))
+                   (s, json.dumps([artist_name, title, album_id], ensure_ascii=False)))
     return s
 
 
@@ -508,10 +577,11 @@ def resolve(kind: str, key: str) -> str:
     return key
 
 
-def resolve_album(key: str) -> tuple[str, str]:
+def resolve_album(key: str) -> tuple[str, str, int | None]:
+    """(artist, title, the store's album id when known)."""
     row = conn().execute("select value from slugs where kind = 'album' and slug = ?", (key,)).fetchone()
     if row:
-        artist_name, title = json.loads(row["value"])
-        return artist_name, title
+        v = json.loads(row["value"])
+        return v[0], v[1], (v[2] if len(v) > 2 else None)
     artist_key, _, title = (unquote(x) for x in key.partition("/"))   # names come URL-encoded, one per part
-    return resolve("artist", artist_key), resolve("album-title", title)
+    return resolve("artist", artist_key), resolve("album-title", title), None

@@ -42,7 +42,7 @@ export default function NowPlaying({ song, tr, lyrics, q, preparing, onClose, on
           <h1>{song.title}</h1>
           <p className="cf-sub">{preparing ? t('preparing') : <>
             <a onClick={() => open(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
-            {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!))}>{song.album}</a></>}
+            {song.album && <> — <a onClick={() => open(albumPage(song.artist, song.album!, song.album_id))}>{song.album}</a></>}
           </>}</p>
           {song.radio && (
             <button className="cf-btn keep" onClick={() => api.keep(song.id).then(onSong)}><I.Heart size={12} /> {t('keep')}</button>

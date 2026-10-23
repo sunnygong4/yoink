@@ -8,6 +8,7 @@ export type Song = {
   artist: string
   artist_main?: string   // the artist's one name (邓丽君 / Teresa Teng -> 鄧麗君)
   album: string | null
+  album_id?: number | null   // the store's album id: its page opens by it
   duration: number | null
   thumbnail: string | null
   url: string | null
@@ -34,6 +35,7 @@ export type CatalogSong = {
   versions: number
   song_id: string | null   // already in the library
   instant: boolean         // the karaoke site already has it: adding takes a second
+  album_id?: number | null   // the store's album id
 }
 
 // the name to give an upload when it's added (a catalog song, or a YouTube Music track's own details)
@@ -56,7 +58,7 @@ export type Source = {
   fit: number
 }
 
-export type SearchAlbum = { title: string; artist: string; year: string; artwork: string | null }
+export type SearchAlbum = { title: string; artist: string; year: string; artwork: string | null; id?: number | null }
 export type CatalogResults = {
   songs: CatalogSong[]
   artists: { name: string; genre: string | null }[]
@@ -67,7 +69,7 @@ export type CatalogResults = {
 }
 export type LocalSong = { song: Song; in_library: boolean }
 
-export type ArtistAlbum = { title: string; artist: string; year: string; artwork: string | null; tracks: number | null; single: boolean }
+export type ArtistAlbum = { title: string; artist: string; year: string; artwork: string | null; tracks: number | null; single: boolean; id?: number | null }
 
 export type Artist = {
   name: string
@@ -88,6 +90,7 @@ export type Lang = 'zh' | 'yue' | 'ja' | 'en' | 'ko' | 'nan' | 'other'
 export type ArtistSongs = { langs: Partial<Record<Lang, number>>; total: number; songs: (CatalogSong & { lang: Lang })[] }
 
 export type Album = {
+  id?: number | null
   title: string
   artist: string
   year: string
@@ -182,7 +185,7 @@ export const api = {
   catalog: (q: string) => call<CatalogResults>(`/api/catalog?${new URLSearchParams({ q })}`),
   suggest: (q: string) => call<string[]>(`/api/suggest?${new URLSearchParams({ q })}`),
   preview: (song: CatalogSong) => call<Song>('/api/songs/preview', song),
-  addAlbum: (key: string) => call<{ queued: number }>('/api/album/add', { key }),
+  addAlbum: (key: string, id?: number | null) => call<{ queued: number }>('/api/album/add', { key, id: id ?? null }),
   artist: (key: string) => call<Artist>(`/api/artist?${new URLSearchParams({ key })}`),
   artistMedia: async (name: string, kind: 'logo' | 'photo' | 'background', file: File) => {
     const form = new FormData()
@@ -192,7 +195,7 @@ export const api = {
     const r = await fetch('/api/artist/media', { method: 'POST', body: form, headers: { 'x-lang': getLang() } })
     if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({}))).detail || r.statusText)
   },
-  album: (key: string) => call<Album>(`/api/album?${new URLSearchParams({ key })}`),
+  album: (key: string, id?: number) => call<Album>(`/api/album?${new URLSearchParams({ key, ...(id ? { id: String(id) } : {}) })}`),
   artistSongs: (key: string, langs: string[], offset: number) =>
     call<ArtistSongs>(`/api/artist/songs?${new URLSearchParams({ key, langs: langs.join(','), offset: String(offset) })}`),
   quick: (song: CatalogSong) => call<Song>('/api/songs/quick', song),

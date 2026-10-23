@@ -127,7 +127,7 @@ export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded,
           <span className="name">{song.title}</span>
           <span className="sub">
             <a onClick={() => openPage(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
-            {!compact && song.album && <> — <a onClick={() => openPage(albumPage(song.artist, song.album))}>{song.album}</a>{song.year && ` (${song.year})`}</>}
+            {!compact && song.album && <> — <a onClick={() => openPage(albumPage(song.artist, song.album, song.album_id))}>{song.album}</a>{song.year && ` (${song.year})`}</>}
             {' · '}{fmtTime(song.duration)}
           </span>
           {lib && !ready && <SongStatus song={lib} />}

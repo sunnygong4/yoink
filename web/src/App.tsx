@@ -209,7 +209,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
           {page.kind === 'phone' && <DevicePage ipod={phone} user={user} library={library} phone />}
           {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} onSong={onSong} {...common} />}
-          {page.kind === 'album' && <AlbumPage key={page.key} pageKey={page.key} {...common} />}
+          {page.kind === 'album' && <AlbumPage key={page.key + (page.id ?? '')} pageKey={page.key} albumId={page.id} {...common} />}
         </main>
       </div>
       <footer className="statusbar">
@@ -365,7 +365,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
           <a onClick={e => { e.stopPropagation(); open(artistPage(mainArtist(s))) }}>{s.artist}</a>
         </td>
         <td className="c-album">
-          {s.album && <a onClick={e => { e.stopPropagation(); open(albumPage(s.artist, s.album!)) }}>{s.album}</a>}
+          {s.album && <a onClick={e => { e.stopPropagation(); open(albumPage(s.artist, s.album!, s.album_id)) }}>{s.album}</a>}
         </td>
         <td className="c-by">{fmtDate(s.added_at)}</td>
         <td className="c-act">
@@ -393,7 +393,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
           <span className="album-cell">
             {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <span className="blank" />}
             <span>
-              <a className="name" onClick={e => { e.stopPropagation(); open(albumPage(g.artist, g.album)) }}>{g.album}</a>
+              <a className="name" onClick={e => { e.stopPropagation(); open(albumPage(g.artist, g.album, g.songs.find(x => x.album_id)?.album_id)) }}>{g.album}</a>
               <span className="count">{t('nSongs', { n: g.songs.length })}</span>
             </span>
           </span>
@@ -551,7 +551,7 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
           {top && (
             <section className="top-result">
               <h2 className="section-title">{t('topResult')}</h2>
-              <button className="top-card" onClick={() => open(top.kind === 'artist' ? artistPage(top.name) : albumPage(top.artist, top.title))}>
+              <button className="top-card" onClick={() => open(top.kind === 'artist' ? artistPage(top.name) : albumPage(top.artist, top.title, top.id))}>
                 {topCover ? <img className={top.kind === 'artist' ? 'round' : ''} src={topCover} alt="" /> : <span className="blank">♫</span>}
                 <span className="top-text">
                   <b>{top.kind === 'artist' ? top.name : top.title}</b>
@@ -587,7 +587,7 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
               <h2 className="section-title">{t('albumsTitle')}</h2>
               <div className="covers one-row">
                 {res.albums.map(a => (
-                  <button key={a.title + a.artist} className="cover-tile" onClick={() => open(albumPage(a.artist, a.title))}>
+                  <button key={a.title + a.artist} className="cover-tile" onClick={() => open(albumPage(a.artist, a.title, a.id))}>
                     {a.artwork ? <img src={a.artwork} alt="" loading="lazy" /> : <span className="art" />}
                     <span className="name">{a.title}</span>
                     <span className="sub">{a.artist}{a.year && ` · ${a.year}`}</span>
