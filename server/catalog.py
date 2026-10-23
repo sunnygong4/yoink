@@ -114,6 +114,68 @@ def search(q: str) -> list[dict]:
     return out
 
 
+# ---------- artists and albums by name: the top result, and suggestions while typing ----------
+
+def _lookup(term: str, entity: str, limit: int) -> list[dict]:
+    key = f"{entity}:{term.strip().lower()}:{limit}"
+    with _lock:
+        hit = _cache.get(key)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        return hit[1]
+    country = "TW" if _CJK.search(term) else "US"
+    rows = _client.get("https://itunes.apple.com/search",
+                       params={"term": term, "entity": entity, "limit": limit, "country": country}).json().get("results") or []
+    with _lock:
+        _cache[key] = (time.time(), rows)
+    return rows
+
+
+def artists(q: str, limit: int = 6) -> list[dict]:
+    out, seen = [], set()
+    for a in _lookup(q, "musicArtist", limit + 4):
+        k = norm(a.get("artistName"))
+        if k and k not in seen:
+            seen.add(k)
+            out.append({"name": a["artistName"], "genre": a.get("primaryGenreName")})
+    return out[:limit]
+
+
+def albums(q: str, limit: int = 8) -> list[dict]:
+    out, seen = [], set()
+    for a in _lookup(q, "album", limit + 6):
+        k = (norm(clean_title(a.get("collectionName") or "")), norm(lead_artist(a.get("artistName") or "")))
+        if a.get("collectionName") and k not in seen:
+            seen.add(k)
+            out.append({"title": a["collectionName"], "artist": a.get("artistName") or "",
+                        "year": (a.get("releaseDate") or "")[:4],
+                        "artwork": (a.get("artworkUrl100") or "").replace("100x100bb", "400x400bb") or None})
+    return out[:limit]
+
+
+def top_result(q: str, found_artists: list[dict], found_albums: list[dict], songs: list[dict]) -> dict | None:
+    """Searching for a name (Queen, 周杰伦, Hot Space): their page comes first, Google-style. A name only counts when
+    the songs found are theirs too (so "john" doesn't open some artist called John, nor "hot space" a band of that name)."""
+    want = norm(q)
+    by = {}
+    for s in songs:
+        k = norm(lead_artist(s.get("artist") or ""))
+        by[k] = by.get(k, 0) + 1
+    artist = next((a for a in found_artists if norm(a["name"]) == want and by.get(want, 0)), None)
+    album = next((a for a in found_albums if norm(clean_title(a["title"])) == want and by.get(norm(lead_artist(a["artist"])), 0)), None)
+    if artist and (by[want] >= 3 or not album):
+        return {"kind": "artist", **artist}
+    if album:
+        return {"kind": "album", **album}
+    return None
+
+
+def suggest(q: str, limit: int = 6) -> list[str]:
+    """Artists for the drop-down while typing: names that contain what's typed, those starting with it first."""
+    want = flat(q)
+    names = [a["name"] for a in artists(q, limit + 6) if want in flat(a["name"])]
+    return sorted(names, key=lambda n: not flat(n).startswith(want))[:limit]
+
+
 # ---------- from a song to an upload ----------
 
 def lead_artist(artist: str) -> str:

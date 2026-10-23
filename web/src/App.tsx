@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, fmtTime, type CatalogSong, type Song, type User } from './api'
+import { api, fmtTime, type CatalogResults, type CatalogSong, type Song, type User } from './api'
 import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
@@ -88,7 +88,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     setInviteLink(`${location.origin}/?invite=${code}`)
   }
 
-  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue }
+  // ▶ on a song that isn't in the library: fetch it just to listen, and play it right away
+  const preview = useCallback(async (song: CatalogSong) => {
+    const s = await api.preview(song)
+    onSong(s)
+    q.playNow(s.id)
+  }, [onSong, q])
+  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview }
   const common = { ...actions, byId, library, currentId: q.current, open }
 
   return (
@@ -138,7 +144,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             </div>
           )}
           {page.kind === 'library' && <Library songs={library} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
-          {page.kind === 'search' && <Search byId={byId} currentId={q.current} {...actions} />}
+          {page.kind === 'search' && <Search byId={byId} currentId={q.current} open={open} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
           {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} {...common} />}
@@ -388,46 +394,142 @@ function Library({ songs, currentId, open, onImport, onRemove, play, playNext, e
   )
 }
 
-function Search({ byId, currentId, play, enqueue }: Actions & { byId: Map<string, Song>; currentId?: string }) {
+function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<string, Song>; currentId?: string; open: (p: Page) => void }) {
   const [q, setQ] = useState('')
-  const [results, setResults] = useState<CatalogSong[]>([])
+  const [res, setRes] = useState<CatalogResults | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [added, setAdded] = useState<Record<string, string>>({})   // catalog key -> library song id
-  const [open, setOpen] = useState<string | null>(null)            // catalog key whose sources are shown
+  const [picker, setPicker] = useState<string | null>(null)        // catalog key whose sources are shown
 
-  async function run(e: React.FormEvent) {
-    e.preventDefault()
-    if (!q.trim()) return
+  async function run(term = q) {
+    if (!term.trim()) return
     setBusy(true)
     setError('')
-    setOpen(null)
-    try { setResults(await api.catalog(q)) } catch (err) { setError((err as Error).message) }
+    setPicker(null)
+    try { setRes(await api.catalog(term)) } catch (err) { setError((err as Error).message) }
     setBusy(false)
   }
 
-  const onAdded = (key: string, s: Song) => { setAdded(a => ({ ...a, [key]: s.id })); setOpen(null) }
-
+  const top = res?.top
+  const topCover = top?.kind === 'album' ? top.artwork
+    : top && res?.albums.find(a => flat(leadArtist(a.artist)) === flat(top.name))?.artwork   // an artist's face: their album cover
   return (
     <>
-      <form className="listbar" onSubmit={run}>
-        <label className="searchfield wide">
-          <I.Search size={12} />
-          <input placeholder={t('searchPlaceholder')} value={q} onChange={e => setQ(e.target.value)} autoFocus />
-        </label>
-        <button type="submit" className="blue" disabled={busy}>{busy ? t('searching') : t('search')}</button>
-      </form>
+      <div className="listbar">
+        <SearchBox value={q} onChange={setQ} busy={busy} onSearch={term => { setQ(term); run(term) }}
+          onArtist={name => open(artistPage(name))} />
+      </div>
       {error && <p className="error pad">{error}</p>}
-      {results.length > 0 && (
-        <div className="results">
-          {results.map((r, i) => (
-            <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')}
-              currentId={currentId} open={open === r.key} onToggle={() => setOpen(open === r.key ? null : r.key)}
-              onAdded={s => onAdded(r.key, s)} play={play} enqueue={enqueue} />
-          ))}
+      {res && (
+        <div className="search-results">
+          {top && (
+            <section className="top-result">
+              <h2 className="section-title">{t('topResult')}</h2>
+              <button className="top-card" onClick={() => open(top.kind === 'artist' ? artistPage(top.name) : albumPage(top.artist, top.title))}>
+                {topCover ? <img className={top.kind === 'artist' ? 'round' : ''} src={topCover} alt="" /> : <span className="blank">♫</span>}
+                <span className="top-text">
+                  <b>{top.kind === 'artist' ? top.name : top.title}</b>
+                  <span>{top.kind === 'artist' ? [t('artistKind'), top.genre].filter(Boolean).join(' · ') : `${t('albumKind')} · ${top.artist}${top.year ? ` · ${top.year}` : ''}`}</span>
+                </span>
+                <span className="top-open">{t('openPage')} ›</span>
+              </button>
+            </section>
+          )}
+          {res.artists.length > (top?.kind === 'artist' ? 1 : 0) && (
+            <section>
+              <h2 className="section-title">{t('artistsTitle')}</h2>
+              <div className="chips">
+                {res.artists.filter(a => !(top?.kind === 'artist' && a.name === top.name)).map(a => (
+                  <button key={a.name} className="pill" onClick={() => open(artistPage(a.name))}>{a.name}</button>
+                ))}
+              </div>
+            </section>
+          )}
+          {res.albums.length > 0 && (
+            <section>
+              <h2 className="section-title">{t('albumsTitle')}</h2>
+              <div className="covers one-row">
+                {res.albums.map(a => (
+                  <button key={a.title + a.artist} className="cover-tile" onClick={() => open(albumPage(a.artist, a.title))}>
+                    {a.artwork ? <img src={a.artwork} alt="" loading="lazy" /> : <span className="art" />}
+                    <span className="name">{a.title}</span>
+                    <span className="sub">{a.artist}{a.year && ` · ${a.year}`}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          {res.songs.length > 0 && (
+            <section>
+              <h2 className="section-title">{t('songsTitle')}</h2>
+              <div className="results">
+                {res.songs.map((r, i) => (
+                  <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')}
+                    currentId={currentId} open={picker === r.key} onToggle={() => setPicker(picker === r.key ? null : r.key)}
+                    onAdded={s => { setAdded(a => ({ ...a, [r.key]: s.id })); setPicker(null) }}
+                    play={actions.play} preview={actions.preview} openPage={open} />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </>
   )
 }
 
+/** The search field with Google-style suggestions: artists whose name starts like this, then the plain query. */
+function SearchBox({ value, onChange, onSearch, onArtist, busy }: {
+  value: string; onChange: (v: string) => void; onSearch: (q: string) => void; onArtist: (name: string) => void; busy: boolean
+}) {
+  const [items, setItems] = useState<string[]>([])
+  const [open, setOpen] = useState(false)
+  const [hi, setHi] = useState(-1)
+
+  useEffect(() => {
+    const term = value.trim()
+    if (!term || term.length < (/[\u3400-\u9fff]/.test(term) ? 1 : 2)) { setItems([]); return }
+    let live = true
+    const timer = window.setTimeout(() => {
+      api.suggest(term).then(r => { if (live) { setItems(r); setHi(-1) } }).catch(() => {})
+    }, 250)
+    return () => { live = false; clearTimeout(timer) }
+  }, [value])
+
+  const options = [...items.map(name => ({ kind: 'artist' as const, name })), ...(value.trim() ? [{ kind: 'query' as const, name: value.trim() }] : [])]
+  const choose = (o: typeof options[number]) => {
+    setOpen(false)
+    if (o.kind === 'artist') onArtist(o.name)
+    else onSearch(o.name)
+  }
+
+  return (
+    <form className="searchbox" onSubmit={e => { e.preventDefault(); if (hi >= 0 && options[hi]) choose(options[hi]); else { setOpen(false); onSearch(value) } }}>
+      <label className="searchfield wide">
+        <I.Search size={12} />
+        <input placeholder={t('searchPlaceholder')} value={value} autoFocus
+          onChange={e => { onChange(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi(h => Math.min(options.length - 1, h + 1)) }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(-1, h - 1)) }
+            else if (e.key === 'Escape') setOpen(false)
+          }} />
+      </label>
+      <button type="submit" className="blue" disabled={busy}>{busy ? t('searching') : t('search')}</button>
+      {open && options.length > 0 && (
+        <ul className="suggest">
+          {options.map((o, i) => (
+            <li key={o.kind + o.name} className={i === hi ? 'hi' : ''} onMouseDown={e => { e.preventDefault(); choose(o) }}
+              onMouseEnter={() => setHi(i)}>
+              {o.kind === 'artist'
+                ? <><b>{o.name}</b><span className="kind">{t('artistKind')}</span></>
+                : <><I.Search size={11} /> {t('searchFor', { q: o.name })}</>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </form>
+  )
+}

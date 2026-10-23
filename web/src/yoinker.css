@@ -196,3 +196,9 @@
 [data-theme=yoinker] .device-summary, [data-theme=yoinker] .capacity { background: none; border-color: var(--line); }
 [data-theme=yoinker] .sync-status { background: #2a2a1a; border-color: #5a5a2a; }
 [data-theme=yoinker] .sync-status.done { background: #17261b; border-color: #2f5a3b; }
+
+[data-theme=yoinker] .suggest { background: var(--raised); border-color: var(--line); border-radius: 12px; }
+[data-theme=yoinker] .suggest li.hi { background: #2a2f45; color: var(--ink); }
+[data-theme=yoinker] .top-card { border-radius: 14px; }
+[data-theme=yoinker] .top-open { color: var(--accent); }
+[data-theme=yoinker] .ialbum .ia-link.fetch { background: var(--accent); color: #0e0e12; }

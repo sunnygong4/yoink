@@ -151,7 +151,7 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, ...actions
           <h2 className="section-title">{t('topSongs')}</h2>
           <div className="results">
             {a.top.map((r, i) => (
-              <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')}
+              <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')} openPage={open}
                 currentId={currentId} open={picker === r.key} onToggle={() => setPicker(picker === r.key ? null : r.key)}
                 onAdded={s => { setAdded(x => ({ ...x, [r.key]: s.id })); setPicker(null) }} {...actions} />
             ))}
@@ -184,6 +184,7 @@ export function AlbumPage({ pageKey, byId, currentId, open, ...actions }: Common
   const [picker, setPicker] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [more, setMore] = useState(false)
+  const [note, setNote] = useState('')
   const pal = useCoverPalette(al?.artwork)
 
   useEffect(() => { if (al?.slug) canonical({ kind: 'album', key: al.slug }) }, [al?.slug])
@@ -200,6 +201,14 @@ export function AlbumPage({ pageKey, byId, currentId, open, ...actions }: Common
     setBusy(r.key)
     try { const song = await api.quick(r); setAdded(x => ({ ...x, [r.key]: song.id })) } catch (e) { alert((e as Error).message) }
     setBusy(null)
+  }
+  async function listen(r: Album['tracks'][number]) {
+    setBusy(`p${r.key}`)
+    try { await actions.preview(r) } catch (e) { alert((e as Error).message) }
+    setBusy(null)
+  }
+  async function addAll() {
+    try { const { queued } = await api.addAlbum(al!.slug); setNote(t('albumAdding', { n: queued })) } catch (e) { alert((e as Error).message) }
   }
 
   return (
@@ -219,7 +228,11 @@ export function AlbumPage({ pageKey, byId, currentId, open, ...actions }: Common
           <button disabled={!playable.length} onClick={() => actions.play(playable.map(s => s.id))}>
             <I.Play size={11} /> {t('playAlbum', { n: playable.length })}
           </button>
+          {playable.length < al.tracks.length && (
+            <button onClick={addAll}><I.Plus size={11} /> {t('addAlbum')}</button>
+          )}
         </div>
+        {note && <p className="ia-meta">{note}</p>}
 
         <ol className="ia-tracks">
           {al.tracks.map((r, i) => {
@@ -238,13 +251,16 @@ export function AlbumPage({ pageKey, byId, currentId, open, ...actions }: Common
                 </span>
                 <span className="ia-time">{fmtTime(r.duration)}</span>
                 <span className="ia-act">
-                  {ok ? <button className="ia-link" onClick={() => playFrom(song!.id)} title={t('play')}><I.Play size={10} /></button>
-                    : !song && <>
-                      <button className="ia-link" onClick={() => quick(r)} disabled={busy === r.key} title={r.instant ? t('instantHint') : t('quickHint')}>
-                        {busy === r.key ? '…' : r.instant ? t('instant') : t('quickDownload')}
-                      </button>
-                      <button className="ia-link" onClick={() => setPicker(picker === r.key ? null : r.key)} title={t('pickSource')}>⋯</button>
-                    </>}
+                  {/* white ▶: on the server already; blue: fetched first (just to listen) */}
+                  <button className={'ia-link' + (ok || r.instant ? '' : ' fetch')} disabled={busy === `p${r.key}`}
+                    onClick={() => (ok ? playFrom(song!.id) : listen(r))} title={ok || r.instant ? t('playHint') : t('previewHint')}>
+                    {busy === `p${r.key}` ? '…' : <><I.Play size={9} /> {t('play')}</>}
+                  </button>
+                  {song ? <span className="ia-have" title={t('inLibraryHint')}>✓</span>
+                    : <button className="ia-link" onClick={() => quick(r)} disabled={busy === r.key} title={t('addToLibrary')}>
+                      {busy === r.key ? '…' : <><I.Plus size={9} /> {t('addToLibrary')}</>}
+                    </button>}
+                  <button className="ia-link" onClick={() => setPicker(picker === r.key ? null : r.key)} title={t('pickSource')}>⋯</button>
                 </span>
               </li>,
               picker === r.key && (

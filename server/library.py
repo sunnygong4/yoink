@@ -241,16 +241,31 @@ def add(r: dict, user: dict, song: dict | None = None, radio: bool = False) -> d
     return _queue(sid, missing, user, radio)
 
 
-def quick(song: dict, user: dict) -> dict:
-    """快速下载: reuse the store's copy of the song if there is one, else download the best upload of it."""
+def quick(song: dict, user: dict, keep_it: bool = True) -> dict:
+    """A catalog song, from the store's copy if there is one, else from the best upload of it.
+    keep_it: into the library (加入歌库); otherwise just to listen (▶): a smart-play-style song nobody owns,
+    cleaned up after it's played unless someone keeps it."""
     if doc := find(song):
         if doc.get("music_status") in ("queued", "working", "ready"):
-            return keep(doc["id"], user)
-        return _queue(doc["id"], {k: v for k, v in canonical(song).items() if v and not doc.get(k)}, user)
+            return keep(doc["id"], user) if keep_it else view_for(doc, user)
+        fields = {k: v for k, v in canonical(song).items() if v and not doc.get(k)}
+        return _queue(doc["id"], fields, user, radio=not keep_it)
     r = catalog.pick_source(song)
     if not r:
         raise LookupError("no reliable source")
-    return add(r, user, song)
+    return add(r, user, song, radio=not keep_it)
+
+
+def add_album(tracks: list[dict], user: dict) -> dict:
+    """Every track of an album into the library (finding sources takes a while: it runs in the background)."""
+    def run():
+        for t in tracks:
+            try:
+                quick(t, user)
+            except Exception as e:   # no source for one track: the rest still come
+                print(f"[library] album track {t.get('title')}: {e}")
+    threading.Thread(target=run, daemon=True).start()
+    return {"queued": len(tracks)}
 
 
 def keep(sid: str, user: dict) -> dict:

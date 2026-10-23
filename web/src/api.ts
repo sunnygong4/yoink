@@ -49,6 +49,14 @@ export type Source = {
   fit: number
 }
 
+export type SearchAlbum = { title: string; artist: string; year: string; artwork: string | null }
+export type CatalogResults = {
+  songs: CatalogSong[]
+  artists: { name: string; genre: string | null }[]
+  albums: SearchAlbum[]
+  top: ({ kind: 'artist'; name: string; genre: string | null } | ({ kind: 'album' } & SearchAlbum)) | null
+}
+
 export type ArtistAlbum = { title: string; artist: string; year: string; artwork: string | null; tracks: number | null; single: boolean }
 
 export type Artist = {
@@ -126,7 +134,10 @@ export const api = {
   addDevice: (name: string) => call<{ id: number; name: string; token: string }>('/api/devices', { name }),
   removeDevice: (id: number) => fetch(`/api/devices/${id}`, { method: 'DELETE' }),
   songs: () => call<Song[]>('/api/songs'),
-  catalog: (q: string) => call<CatalogSong[]>(`/api/catalog?${new URLSearchParams({ q })}`),
+  catalog: (q: string) => call<CatalogResults>(`/api/catalog?${new URLSearchParams({ q })}`),
+  suggest: (q: string) => call<string[]>(`/api/suggest?${new URLSearchParams({ q })}`),
+  preview: (song: CatalogSong) => call<Song>('/api/songs/preview', song),
+  addAlbum: (key: string) => call<{ queued: number }>('/api/album/add', { key }),
   artist: (key: string) => call<Artist>(`/api/artist?${new URLSearchParams({ key })}`),
   artistMedia: async (name: string, kind: 'logo' | 'photo' | 'background', file: File) => {
     const form = new FormData()
@@ -147,6 +158,7 @@ export const api = {
   history: () => call<Play[]>('/api/plays'),
   keep: (id: string) => call<Song>(`/api/songs/${id}/keep`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
+  lyricsOffset: (id: string, offset: number) => call<{ offset: number }>(`/api/songs/${id}/lyrics-offset`, { method: 'POST', body: JSON.stringify({ offset }) }),
   audioUrl: (id: string) => `/api/songs/${id}/audio`,
   downloadUrl: (id: string) => `/api/songs/${id}/download`,
   importLink: (url: string, info: { title: string; artist: string; album: string }) =>

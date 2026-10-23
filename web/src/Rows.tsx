@@ -2,14 +2,17 @@ import { useEffect, useState } from 'react'
 import { api, fmtTime, type CatalogSong, type Song, type Source } from './api'
 import { errorText, t } from './i18n'
 import * as I from './icons'
+import { albumPage, artistPage, type Page } from './Pages'
+import { leadArtist } from './text'
 
 // Rows shared by the search page and the artist / album pages: a catalog song (in the library or not, with
-// 快速下载 / 单独选取), the source picker, and a library song's download state.
+// ▶ 播放 / 加入歌库 / ⋯ 单独选取), the source picker, and a library song's download state.
 
 export type Actions = {
   play: (ids: string[], start?: number) => void
   playNext: (id: string) => void
   enqueue: (id: string) => void
+  preview: (s: CatalogSong) => Promise<void>   // ▶ on a song that isn't in the library: just listen
 }
 
 export function SongStatus({ song }: { song: Song }) {
@@ -20,19 +23,23 @@ export function SongStatus({ song }: { song: Song }) {
   return <span className="status">{song.status === 'working' ? t('downloading', { p: song.progress || 0 }) : t('queued')}</span>
 }
 
-export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded, play, enqueue, compact }: {
+export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded, play, preview, openPage, compact }: {
   song: CatalogSong; odd: boolean; lib?: Song; currentId?: string; open: boolean
   compact?: boolean   // on an album page: the cover and album are the page's, not repeated per track
   onToggle: () => void; onAdded: (s: Song) => void
-} & Pick<Actions, 'play' | 'enqueue'>) {
-  const [busy, setBusy] = useState(false)
+  preview: (s: CatalogSong) => Promise<void>      // ▶ without adding it to the library
+  openPage: (p: Page) => void
+} & Pick<Actions, 'play'>) {
+  const [busy, setBusy] = useState<'play' | 'add' | null>(null)
   const [error, setError] = useState('')
+  const ready = lib?.status === 'ready'
+  const downloaded = ready || song.instant   // white ▶: it's on the server; blue: it gets fetched first
 
-  async function quick() {
-    setBusy(true)
+  async function run(what: 'play' | 'add', f: () => Promise<unknown>) {
+    setBusy(what)
     setError('')
-    try { onAdded(await api.quick(song)) } catch (err) { setError((err as Error).message) }
-    setBusy(false)
+    try { await f() } catch (err) { setError((err as Error).message) }
+    setBusy(null)
   }
 
   return (
@@ -41,20 +48,25 @@ export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded,
         {!compact && song.artwork ? <img className="art" src={song.artwork} alt="" loading="lazy" onError={e => { e.currentTarget.style.visibility = 'hidden' }} /> : !compact && <div className="art" />}
         <div className="result-text">
           <span className="name">{song.title}</span>
-          <span className="sub">{compact ? `${song.artist} · ${fmtTime(song.duration)}`
-            : <>{song.artist} — {song.album}{song.year && ` (${song.year})`} · {fmtTime(song.duration)}</>}</span>
-          {lib && lib.status !== 'ready' && <SongStatus song={lib} />}
+          <span className="sub">
+            <a onClick={() => openPage(artistPage(leadArtist(song.artist)))}>{song.artist}</a>
+            {!compact && song.album && <> — <a onClick={() => openPage(albumPage(song.artist, song.album))}>{song.album}</a>{song.year && ` (${song.year})`}</>}
+            {' · '}{fmtTime(song.duration)}
+          </span>
+          {lib && !ready && <SongStatus song={lib} />}
           {error && <span className="status error">{error}</span>}
         </div>
-        {lib?.status === 'ready' ? <>
-          <button className="pill" onClick={() => play([lib.id])}><I.Play size={11} /> {t('play')}</button>
-          <button className="pill" onClick={() => enqueue(lib.id)}><I.Plus size={11} /></button>
-        </> : !lib && <>
-          <button className="pill blue" onClick={quick} disabled={busy} title={song.instant ? t('instantHint') : t('quickHint')}>
-            {busy ? t('findingSource') : song.instant ? t('instant') : t('quickDownload')}
-          </button>
-          <button className={'pill' + (open ? ' pressed' : '')} onClick={onToggle}>{t('pickSource')}</button>
-        </>}
+        <button className={'pill' + (downloaded ? '' : ' blue')} disabled={busy === 'play'}
+          title={downloaded ? t('playHint') : t('previewHint')}
+          onClick={() => ready ? play([lib!.id]) : run('play', () => preview(song))}>
+          <I.Play size={10} /> {busy === 'play' ? t('findingSource') : t('play')}
+        </button>
+        {lib && lib.status !== 'error'
+          ? <button className="pill" disabled title={t('inLibraryHint')}>✓ {t('inLibraryShort')}</button>
+          : <button className="pill" disabled={busy === 'add'} onClick={() => run('add', async () => onAdded(await api.quick(song)))}>
+            <I.Plus size={10} /> {busy === 'add' ? '…' : t('addToLibrary')}
+          </button>}
+        <button className={'pill' + (open ? ' pressed' : '')} onClick={onToggle} title={t('pickSource')}>⋯</button>
       </div>
       {open && <SourcePicker song={song} onAdded={onAdded} />}
     </>

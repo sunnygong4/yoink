@@ -49,7 +49,7 @@ export default function NowPlaying({ song, tr, lyrics, q, preparing, onClose, on
             {song.radio && (
               <button className="cf-btn keep" onClick={() => api.keep(song.id).then(onSong)}><I.Heart size={12} /> {t('keep')}</button>
             )}
-            <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} />
+            <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} songId={song.id} />
           </div>
         </div>
         <div className="cf-hud">
@@ -98,7 +98,7 @@ export default function NowPlaying({ song, tr, lyrics, q, preparing, onClose, on
             <rect x="28" y="248" width="26" height="34" rx="4" transform="rotate(30 41 265)" className="arm-head" />
           </svg>
         </div>
-        <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} />
+        <LyricsView lyrics={lyrics} time={tr.time} onSeek={tr.seek} songId={song.id} />
       </div>
 
       <div className="full-bottom">

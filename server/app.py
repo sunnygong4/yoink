@@ -117,14 +117,34 @@ class CatalogSong(BaseModel):
 
 @app.get("/api/catalog")
 def catalog_search(q: str, user=Depends(auth.current_user)):
-    """Songs by name (one per song per artist), each marked if it's in the library or can be added instantly."""
+    """Songs by name (one per song per artist), each marked if it's in the library or already downloaded; plus the
+    artists and albums of that name, and the top result when the search is a name (an artist's or an album's)."""
     if not q.strip():
-        return []
+        return {"songs": [], "artists": [], "albums": [], "top": None}
     try:
-        results = cat.search(q)
+        songs = cat.search(q)
+        artists = cat.artists(q)
+        albums = cat.albums(q)
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Search failed: {e}", f"搜索失败：{e}"))
-    return mark(results, user)
+    return {"songs": mark(songs, user), "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs)}
+
+
+class AlbumAdd(BaseModel):
+    key: str
+
+
+@app.post("/api/album/add")
+def album_add(body: AlbumAdd, req: Request, user=Depends(auth.current_user)):
+    """Every track of the album into the library, downloading what isn't on the server yet."""
+    artist, title = pages.resolve_album(body.key)
+    a = pages.album(artist, title, i18n.lang_of(req.headers))
+    if not a:
+        raise HTTPException(404, i18n.tr("Album not found", "没找到这张专辑"))
+    mine = lib.owned(user)
+    pool = lib.known()
+    todo = [t for t in a["tracks"] if not ((d := lib.find(t, pool)) and d["id"] in mine)]
+    return lib.add_album(todo, user)
 
 
 def mark(songs: list[dict], user: dict) -> list[dict]:
@@ -212,6 +232,27 @@ def album_page(key: str, req: Request, user=Depends(auth.current_user)):
         raise HTTPException(404, i18n.tr("Album not found", "没找到这张专辑"))
     return {**a, "tracks": mark([dict(s) for s in a["tracks"]], user),
             "slug": pages.remember_album(a["artist"], a["title"]), "artist_slug": pages.remember("artist", a["artist"])}
+
+
+@app.get("/api/suggest")
+def suggest(q: str, _=Depends(auth.current_user)):
+    """While typing: artists whose name starts like this (the box adds the plain query itself)."""
+    if not q.strip():
+        return []
+    try:
+        return cat.suggest(q)
+    except Exception:
+        return []
+
+
+@app.post("/api/songs/preview")
+def preview(song: CatalogSong, user=Depends(auth.current_user)):
+    """▶ on a song that isn't in the library: fetch it just to listen (it goes away later unless someone keeps it)."""
+    try:
+        return lib.quick(song.model_dump(), user, keep_it=False)
+    except LookupError:
+        raise HTTPException(404, i18n.tr("No reliable source found: try “Choose source”",
+                                         "没找到靠谱的来源，试试「单独选取」"))
 
 
 @app.post("/api/songs/quick")
@@ -398,6 +439,19 @@ def lyrics(sid: str, _=Depends(auth.current_user)):
     data = json.loads(f.read_text(encoding="utf-8")) if f else {"lines": []}
     data["offset"] = doc.get("lyrics_offset", 0)   # same convention as the karaoke site: line shows at t + offset
     return data
+
+
+class LyricsOffset(BaseModel):
+    offset: float
+
+
+@app.post("/api/songs/{sid}/lyrics-offset")
+def lyrics_offset(sid: str, body: LyricsOffset, _=Depends(auth.current_user)):
+    """Lyrics a little early or late: the nudge is saved on the song (karaoke reads the same field)."""
+    _doc_or_404(sid)
+    off = round(max(-30.0, min(30.0, body.offset)), 2)
+    lib.store.update(sid, lyrics_offset=off)
+    return {"offset": off}
 
 
 @app.get("/api/events")
