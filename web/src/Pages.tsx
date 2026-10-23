@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, fmtTime, type Album, type Artist, type Play, type Song } from './api'
+import { api, fmtTime, type Album, type Artist, type ArtistSongs, type Lang, type Play, type Song } from './api'
 import { t } from './i18n'
 import * as I from './icons'
 import { useCoverPalette } from './coverColor'
@@ -107,6 +107,57 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
 /** Library songs by this artist (any of a song's credited artists). */
 const byArtist = (songs: Song[], name: string) => songs.filter(s => flat(s.artist).includes(flat(name)) && flat(name).length > 0)
 
+/** Every song the artist has in the stores, a toggle per language (鄧麗君: 国语 / 日语 / 粤语 / English / 台语). */
+function SongsByLanguage({ pageKey, byId, currentId, open, actions }: {
+  pageKey: string; byId: Map<string, Song>; currentId?: string; open: (p: Page) => void; actions: Actions
+}) {
+  const [on, setOn] = useState<Set<Lang>>(new Set())   // empty: every language
+  const [data, setData] = useState<ArtistSongs | null>(null)
+  const [more, setMore] = useState<ArtistSongs['songs']>([])
+  const [busy, setBusy] = useState(false)
+  const [added, setAdded] = useState<Record<string, string>>({})
+  const [picker, setPicker] = useState<string | null>(null)
+  const langs = [...on]
+  useEffect(() => {
+    let live = true
+    setBusy(true)
+    api.artistSongs(pageKey, langs, 0).then(d => { if (live) { setData(d); setMore([]) } }).catch(() => {}).finally(() => live && setBusy(false))
+    return () => { live = false }
+  }, [pageKey, langs.sort().join()])
+  if (!data || !Object.keys(data.langs).length) return null
+  const shown = [...data.songs, ...more]
+  const all = Object.values(data.langs).reduce((n, x) => n + (x || 0), 0)
+  const toggle = (l: Lang) => setOn(s => { const n = new Set(s); if (n.has(l)) n.delete(l); else n.add(l); return n })
+  async function loadMore() {
+    setBusy(true)
+    try { const d = await api.artistSongs(pageKey, langs, shown.length); setMore(m => [...m, ...d.songs]) } catch { /* keep what's there */ }
+    setBusy(false)
+  }
+  return (
+    <section className="by-language">
+      <h2 className="section-title">{t('allSongs')}</h2>
+      {Object.keys(data.langs).length > 1 && (
+        <div className="chips lang-chips">
+          <button className={'pill' + (on.size === 0 ? ' pressed' : '')} onClick={() => setOn(new Set())}>{t('lang_all')} <span className="muted">{all}</span></button>
+          {(Object.entries(data.langs) as [Lang, number][]).map(([l, n]) => (
+            <button key={l} className={'pill' + (on.has(l) ? ' pressed' : '')} onClick={() => toggle(l)}>{t(`lang_${l}`)} <span className="muted">{n}</span></button>
+          ))}
+        </div>
+      )}
+      <div className="results">
+        {shown.map((r, i) => (
+          <CatalogRow key={r.key + r.lang} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')} openPage={open} compact={false}
+            currentId={currentId} open={picker === r.key} onToggle={() => setPicker(picker === r.key ? null : r.key)}
+            onAdded={s => { setAdded(x => ({ ...x, [r.key]: s.id })); setPicker(null) }} {...actions} />
+        ))}
+      </div>
+      {shown.length < data.total && (
+        <button className="pill find-more" disabled={busy} onClick={loadMore}>{busy ? '…' : t('moreSongs', { n: data.total - shown.length })}</button>
+      )}
+    </section>
+  )
+}
+
 export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ...actions }: Common & {
   pageKey: string; onSong: (s: Song) => void
 }) {
@@ -210,6 +261,8 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
           </div>
         </section>
       )}
+
+      <SongsByLanguage pageKey={pageKey} byId={byId} currentId={currentId} open={open} actions={actions} />
 
       {[[t('albums'), albums], [t('singlesEps'), singles]].map(([title, list]) => (list as typeof albums).length > 0 && (
         <section key={title as string}>

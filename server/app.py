@@ -260,6 +260,19 @@ def artist_page(key: str, req: Request, user=Depends(auth.current_user)):
     return a
 
 
+@app.get("/api/artist/songs")
+def artist_songs(key: str, langs: str = "", offset: int = 0, limit: int = 50, user=Depends(auth.current_user)):
+    """The artist's songs, by language (langs: "zh,ja"; blank for all), a page at a time."""
+    try:
+        a = pages.artist_songs(pages.resolve("artist", key))
+    except Exception as e:
+        raise HTTPException(502, i18n.tr(f"Couldn't load the songs: {e}", f"加载歌曲失败：{e}"))
+    want = {x for x in langs.split(",") if x}
+    songs = [s for s in a["songs"] if not want or s["lang"] in want]
+    page = [dict(s) for s in songs[max(0, offset):max(0, offset) + max(1, min(limit, 100))]]
+    return {"langs": a["langs"], "total": len(songs), "songs": mark(page, user)}
+
+
 @app.post("/api/artist/media")
 def artist_media_upload(name: str = Form(...), kind: str = Form(...), file: UploadFile = File(...),
                         _=Depends(auth.current_user)):

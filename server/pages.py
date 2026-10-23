@@ -22,7 +22,7 @@ from db import DATA, conn
 _client = httpx.Client(timeout=10, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
 _cache: dict[tuple, tuple[float, object]] = {}
 _lock = threading.Lock()
-TTL = {"artist": 7 * 24 * 3600, "album": 30 * 24 * 3600}   # on disk too: a restart doesn't refetch everything
+TTL = {"artist": 7 * 24 * 3600, "album": 30 * 24 * 3600, "songs": 7 * 24 * 3600}   # on disk too: a restart doesn't refetch everything
 CACHE_DIR = DATA / "cache" / "pages"
 AUDIODB = "https://www.theaudiodb.com/api/v1/json/123"
 
@@ -83,6 +83,106 @@ def _song(t: dict) -> dict:
             "album": t.get("collectionName") or "", "duration": round((t.get("trackTimeMillis") or 0) / 1000) or None,
             "artwork": _art(t.get("artworkUrl100")), "year": (t.get("releaseDate") or "")[:4], "versions": 1,
             "track": t.get("trackNumber"), "disc": t.get("discNumber")}
+
+
+# ---------- an artist's songs, by language (鄧麗君 sang in Mandarin, Cantonese, Japanese, Taiwanese, English) ----------
+
+LANGS = ("zh", "yue", "ja", "en", "ko", "nan", "other")   # 国语 粤语 日语 English 韩语 台语
+_GENRE_LANG = [
+    (re.compile(r"(?i)canto|粵語|粤语|廣東|广东|香港流行|広東"), "yue"),
+    (re.compile(r"(?i)tai-pop|台語|台语|閩南|闽南"), "nan"),
+    (re.compile(r"(?i)mando|華語|华语|國語|国语|マンドポップ|台灣流行|c-pop"), "zh"),
+    (re.compile(r"(?i)j-pop|日本流行|歌謡曲|演歌|enka|anime|アニメ|j-rock"), "ja"),
+    (re.compile(r"(?i)k-pop|韓國|韩国|韓国"), "ko"),
+]
+_KANA = re.compile(r"[぀-ヿ]")
+_HANGUL = re.compile(r"[가-힣]")
+_HAN = re.compile(r"[㐀-鿿]")
+_KATAKANA_ONLY = re.compile(r"[゠-ヿ\s・ー\-()（）!?！？'’.,&]+")
+
+
+def _lang_of(t: dict) -> str:
+    """The language a track is sung in: kana / hangul in its name say so; else its genre (the stores file songs under
+    Mandopop / Cantopop / J-Pop…); else an all-Latin name is English and a Chinese one Mandarin."""
+    name = t.get("trackName") or ""
+    if _KANA.search(name):
+        return "ja"
+    if _HANGUL.search(name):
+        return "ko"
+    genre = t.get("primaryGenreName") or ""
+    for rx, lang in _GENRE_LANG:
+        if rx.search(genre):
+            return lang
+    if _HAN.search(name):
+        return "zh"
+    return "en" if re.search(r"[A-Za-z]", name) else "other"
+
+
+def artist_songs(name: str) -> dict:
+    return _cached(("songs", flat(name)), lambda: _artist_songs(name))
+
+
+def _artist_songs(name: str) -> dict:
+    """Every song the stores have by the artist (each store knows its own part: Hong Kong the Cantonese songs, Japan the
+    Japanese ones), one per song per language, in each store's own order (roughly how popular they are)."""
+    it = _itunes_artist(name)
+    if not it:
+        return {"songs": [], "langs": {}}
+    stores = list(dict.fromkeys((_country(name), "HK", "JP", "TW", "US", "KR")))
+
+    def fetch(country):
+        try:
+            return _client.get("https://itunes.apple.com/lookup", params={
+                "id": it["artistId"], "entity": "song", "limit": 200, "country": country}).json().get("results") or []
+        except (httpx.HTTPError, ValueError):
+            return []
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(len(stores)) as ex:
+        lists = list(ex.map(fetch, stores))
+    # one track is in several stores under each store's own name (Queen's in Japan: ドント・ストップ・ミー・ナウ;
+    # her Japanese songs in Taiwan: 任時光自身畔流逝): merge by track, named by the store of the song's language
+    home_of = {"ja": "JP", "yue": "HK", "zh": "TW", "nan": "TW", "ko": "KR", "en": "US"}
+    tracks: dict[int, dict[str, dict]] = {}
+    order: list[int] = []
+    for country, rows in zip(stores, lists):
+        for t in rows:
+            if t.get("wrapperType") != "track" or not t.get("trackName") or t.get("artistId") != it["artistId"]:
+                continue
+            if t["trackId"] not in tracks:
+                tracks[t["trackId"]] = {}
+                order.append(t["trackId"])
+            tracks[t["trackId"]][country] = t
+    out, seen = [], {}
+    for tid in order:
+        by = tracks[tid]
+        first = by[next(iter(by))]
+        # the language from the store where the name is the song's own (kana in Japan's are Japanese only there)
+        lang = _lang_of(by.get("US") or by.get("TW") or first) if len(by) > 1 else _lang_of(first)
+        if "JP" in by and (_KANA.search(by["JP"]["trackName"]) and len(by) == 1 or _lang_of(by["JP"]) == "ja" and lang != "en"):
+            lang = _lang_of(by["JP"])
+        t = by.get(home_of.get(lang, "")) or first
+        # a foreign song's name spelled in katakana by the Japanese store (Queen's ハマー・トゥ・フォール), filed as Rock,
+        # not J-Pop: a Japanese release of a song the other stores have under its own name
+        if _KATAKANA_ONLY.fullmatch(catalog.clean_title(t["trackName"])) and not any(rx.search(t.get("primaryGenreName") or "") for rx, _ in _GENRE_LANG):
+            continue
+        # ...and a track only the Japanese store has, filed under a foreign genre: a Japanese release of a foreign song
+        # under a translated name (Queen's 伝説のチャンピオン)
+        if set(by) == {"JP"} and not any(rx.search(t.get("primaryGenreName") or "") and lg == "ja" for rx, lg in _GENRE_LANG)                 and _lang_of({**t, "trackName": ""}) != "ja" and _country(name) != "JP":
+            continue
+        k = (lang, norm(catalog.clean_title(t["trackName"])))
+        if k in seen:
+            seen[k]["versions"] += 1
+            continue
+        song = {**_song(t), "lang": lang}
+        seen[k] = song
+        out.append(song)
+    # Japanese songs under their Japanese names first (the Taiwan store sells some of hers with Chinese titles)
+    out.sort(key=lambda x: x["lang"] == "ja" and not _KANA.search(x["title"]))
+    langs = {}
+    for s in out:
+        langs[s["lang"]] = langs.get(s["lang"], 0) + 1
+    return {"songs": out, "langs": dict(sorted(langs.items(), key=lambda kv: -kv[1]))}
 
 
 # ---------- artist ----------

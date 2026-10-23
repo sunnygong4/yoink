@@ -82,6 +82,10 @@ export type Artist = {
   slug: string
 }
 
+// an artist's songs, by the language they're sung in
+export type Lang = 'zh' | 'yue' | 'ja' | 'en' | 'ko' | 'nan' | 'other'
+export type ArtistSongs = { langs: Partial<Record<Lang, number>>; total: number; songs: (CatalogSong & { lang: Lang })[] }
+
 export type Album = {
   title: string
   artist: string
@@ -188,6 +192,8 @@ export const api = {
     if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({}))).detail || r.statusText)
   },
   album: (key: string) => call<Album>(`/api/album?${new URLSearchParams({ key })}`),
+  artistSongs: (key: string, langs: string[], offset: number) =>
+    call<ArtistSongs>(`/api/artist/songs?${new URLSearchParams({ key, langs: langs.join(','), offset: String(offset) })}`),
   quick: (song: CatalogSong) => call<Song>('/api/songs/quick', song),
   sources: (song: CatalogSong, where: string) => call<Source[]>(`/api/sources?where=${where}`, song),
   add: (r: Source, song?: UploadSong, preview = false) => call<Song>('/api/songs', { ...r, song, preview }),
