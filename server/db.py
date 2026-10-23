@@ -93,5 +93,15 @@ def conn() -> sqlite3.Connection:
 
 conn().executescript(_SCHEMA)
 # invites that run out (added after the first invites, which have none: they never expire)
-if "expires" not in {r["name"] for r in conn().execute("pragma table_info(invites)")}:
+_cols = {r["name"] for r in conn().execute("pragma table_info(invites)")}
+if "expires" not in _cols:
     conn().execute("alter table invites add column expires real")
+# reusable invites: anyone may sign up with one until it expires (used_by is then the first who did)
+if "reusable" not in _cols:
+    conn().execute("alter table invites add column reusable integer not null default 0")
+conn().execute("create table if not exists invite_uses (code text not null, user_id integer not null references users(id), "
+               "at real not null)")
+# uses from before invite_uses was kept: the one each used invite remembers (runs once per invite)
+conn().execute("insert into invite_uses (code, user_id, at) select i.code, i.used_by, coalesce(u.created, i.created) "
+               "from invites i left join users u on u.id = i.used_by "
+               "where i.used_by is not null and i.code not in (select code from invite_uses)")

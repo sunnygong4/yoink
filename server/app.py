@@ -83,8 +83,8 @@ def admin(user=Depends(auth.current_user)):
     songs = [d for d in store if d and d.get("music_status")]
     stats = {"store_songs": len(songs), "ready": sum(d.get("music_status") == "ready" for d in songs),
              "smart_songs": sum(bool(d.get("music_radio")) for d in songs),
-             "invites_open": c.execute("select count(*) from invites where used_by is null and (expires is null or expires > ?)",
-                                       (time.time(),)).fetchone()[0]}
+             "invites_open": c.execute("select count(*) from invites where (used_by is null or reusable = 1) "
+                                       "and (expires is null or expires > ?)", (time.time(),)).fetchone()[0]}
     return {"people": people, "recent": recent, "stats": stats, "invites": auth.invites()}
 
 
@@ -147,9 +147,24 @@ def _admin(user=Depends(auth.current_user)) -> dict:
     return user
 
 
+class NewInvite(BaseModel):
+    reusable: bool = False
+
+
 @app.post("/api/admin/invites")
-def admin_invite(user=Depends(_admin)):
-    return auth.create_invite(user["id"])
+def admin_invite(body: NewInvite | None = None, user=Depends(_admin)):
+    return auth.create_invite(user["id"], reusable=bool(body and body.reusable))
+
+
+class InviteChange(BaseModel):
+    reusable: bool
+
+
+@app.patch("/api/admin/invites/{code}")
+def admin_change_invite(code: str, body: InviteChange, _=Depends(_admin)):
+    if not auth.set_reusable(code, body.reusable):
+        raise HTTPException(404, i18n.tr("No such invite", "没有这个邀请码"))
+    return {"ok": True}
 
 
 @app.delete("/api/admin/invites/{code}")

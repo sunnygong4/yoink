@@ -85,7 +85,8 @@ def register(name: str, pw: str, invite: str | None) -> dict:
         first = c.execute("select count(*) from users").fetchone()[0] == 0
         inv = None
         if not first:
-            inv = c.execute("select * from invites where code = ? and used_by is null", ((invite or "").strip(),)).fetchone()
+            inv = c.execute("select * from invites where code = ? and (used_by is null or reusable = 1)",
+                            ((invite or "").strip(),)).fetchone()
             if not inv:
                 raise HTTPException(403, tr("That invite code is wrong or already used", "邀请码无效或已被用过"))
             if inv["expires"] and inv["expires"] < time.time():
@@ -95,7 +96,8 @@ def register(name: str, pw: str, invite: str | None) -> dict:
         uid = c.execute("insert into users (name, pw_hash, is_admin, invited_by, created) values (?, ?, ?, ?, ?)",
                         (name, hash_password(pw), int(first), inv["created_by"] if inv else None, time.time())).lastrowid
         if inv:
-            c.execute("update invites set used_by = ? where code = ?", (uid, inv["code"]))
+            c.execute("update invites set used_by = coalesce(used_by, ?) where code = ?", (uid, inv["code"]))
+            c.execute("insert into invite_uses (code, user_id, at) values (?, ?, ?)", (inv["code"], uid, time.time()))
         c.execute("commit")
     except BaseException:
         c.execute("rollback")
@@ -113,21 +115,38 @@ def login(name: str, pw: str) -> dict:
 INVITE_DAYS = 7
 
 
-def create_invite(user_id: int, days: float = INVITE_DAYS) -> dict:
+def create_invite(user_id: int, days: float = INVITE_DAYS, reusable: bool = False) -> dict:
     code = secrets.token_urlsafe(6)
     now = time.time()
-    conn().execute("insert into invites (code, created_by, created, expires) values (?, ?, ?, ?)",
-                   (code, user_id, now, now + days * 86400))
-    return {"code": code, "expires": now + days * 86400}
+    conn().execute("insert into invites (code, created_by, created, expires, reusable) values (?, ?, ?, ?, ?)",
+                   (code, user_id, now, now + days * 86400, int(reusable)))
+    return {"code": code, "expires": now + days * 86400, "reusable": reusable}
+
+
+def set_reusable(code: str, reusable: bool) -> bool:
+    return conn().execute("update invites set reusable = ? where code = ?", (int(reusable), code)).rowcount > 0
 
 
 def invites() -> list[dict]:
     """Every invite, newest first, with who made it and who used it (for /admin)."""
-    return [dict(r) for r in conn().execute(
-        "select i.code, i.created, i.expires, c.name as created_by, u.name as used_by from invites i "
-        "join users c on c.id = i.created_by left join users u on u.id = i.used_by order by i.created desc")]
+    c = conn()
+    out = []
+    for r in c.execute("select i.code, i.created, i.expires, i.reusable, c.name as created_by, u.name as used_by from invites i "
+                       "join users c on c.id = i.created_by left join users u on u.id = i.used_by order by i.created desc"):
+        v = dict(r)
+        v["reusable"] = bool(v["reusable"])
+        # everyone who signed up with it (invites used before this was kept: just the one in used_by)
+        v["used_by_all"] = [x["name"] for x in c.execute(
+            "select u.name from invite_uses x join users u on u.id = x.user_id where x.code = ? order by x.at", (r["code"],))]             or ([v["used_by"]] if v["used_by"] else [])
+        out.append(v)
+    return out
 
 
 def delete_invite(code: str) -> bool:
-    """An unused invite, gone (a used one stays: it says who invited whom)."""
-    return conn().execute("delete from invites where code = ? and used_by is null", (code,)).rowcount > 0
+    """An unused invite, gone; a reusable one stops working (a used one-time invite stays: it says who invited whom)."""
+    c = conn()
+    if c.execute("delete from invites where code = ? and used_by is null", (code,)).rowcount:
+        return True
+    # a reusable invite someone already used: keep the record, but it works no more
+    return c.execute("update invites set reusable = 0, expires = min(coalesce(expires, ?), ?) where code = ? and reusable = 1",
+                     (time.time(), time.time(), code)).rowcount > 0

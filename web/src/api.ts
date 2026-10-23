@@ -115,7 +115,7 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(path: string, body?: unknown, method?: 'DELETE' | 'PUT'): Promise<T> {
+async function call<T>(path: string, body?: unknown, method?: 'DELETE' | 'PUT' | 'PATCH'): Promise<T> {
   const headers: Record<string, string> = { 'x-lang': getLang() }   // server messages in the UI's language
   const r = await fetch(path, method === 'DELETE' ? { method, headers } : body === undefined ? { headers } : {
     method: method ?? 'POST',
@@ -145,7 +145,8 @@ export const api = {
   register: (name: string, password: string, invite: string) => call<User>('/api/register', { name, password, invite }),
   logout: () => call('/api/logout', {}),
   invite: () => call<{ code: string; expires: number }>('/api/invites', {}),
-  adminInvite: () => call<{ code: string; expires: number }>('/api/admin/invites', {}),
+  adminInvite: (reusable = false) => call<{ code: string; expires: number }>('/api/admin/invites', { reusable }),
+  setReusable: (code: string, reusable: boolean) => call(`/api/admin/invites/${encodeURIComponent(code)}`, { reusable }, 'PATCH'),
   deleteInvite: (code: string) => call<{ ok: boolean }>(`/api/admin/invites/${encodeURIComponent(code)}`, undefined, 'DELETE'),
   addDevice: (name: string) => call<{ id: number; name: string; token: string }>('/api/devices', { name }),
   removeDevice: (id: number) => fetch(`/api/devices/${id}`, { method: 'DELETE' }),
@@ -238,7 +239,8 @@ export type AdminData = {
     devices: { name: string; created: number; last_seen: number | null }[]; top_artists: { artist: string; n: number }[] }[]
   recent: { played_at: number; title: string; artist: string; radio: number; user: string }[]
   stats: { store_songs: number; ready: number; smart_songs: number; invites_open: number }
-  invites: { code: string; created: number; expires: number | null; created_by: string; used_by: string | null }[]
+  invites: { code: string; created: number; expires: number | null; created_by: string; used_by: string | null
+    reusable: boolean; used_by_all: string[] }[]
 }
 
 export function fmtTime(s: number | null | undefined) {

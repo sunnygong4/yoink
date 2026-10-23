@@ -28,8 +28,11 @@ export default function AdminPage() {
   const [made, setMade] = useState('')   // the link of the invite just made
   const load = () => api.admin().then(setData).catch(e => setError((e as Error).message))
   useEffect(() => { load() }, [])
-  async function newInvite() {
-    try { const { code } = await api.adminInvite(); setMade(link(code)); load() } catch (e) { alert((e as Error).message) }
+  async function newInvite(reusable = false) {
+    try { const { code } = await api.adminInvite(reusable); setMade(link(code)); load() } catch (e) { alert((e as Error).message) }
+  }
+  async function toggle(code: string, reusable: boolean) {
+    try { await api.setReusable(code, reusable); load() } catch (e) { alert((e as Error).message) }
   }
   async function drop(code: string) {
     try { await api.deleteInvite(code); load() } catch (e) { alert((e as Error).message) }
@@ -77,7 +80,9 @@ export default function AdminPage() {
 
       <h2 className="section-title invites-title">
         {zh ? '邀请码' : 'Invites'}
-        <button className="blue" onClick={newInvite}>{zh ? '+ 新建邀请码（7 天）' : '+ New invite (7 days)'}</button>
+        <button onClick={() => newInvite(true)} title={zh ? '7 天内谁都能用，次数不限' : 'Anyone may use it, any number of times, for 7 days'}>
+          {zh ? '+ 可重复的邀请码（7 天）' : '+ Reusable invite (7 days)'}</button>
+        <button className="blue" onClick={() => newInvite()}>{zh ? '+ 新建邀请码（7 天）' : '+ New invite (7 days)'}</button>
       </h2>
       {made && (
         <div className="notice">{zh ? '新邀请链接：' : 'New invite link:'}
@@ -93,19 +98,30 @@ export default function AdminPage() {
         </tr></thead>
         <tbody>
           {data.invites.map(v => {
-            const expired = !v.used_by && v.expires !== null && v.expires * 1000 < Date.now()
+            const timeUp = v.expires !== null && v.expires * 1000 < Date.now()
+            const open = !timeUp && (v.reusable || !v.used_by)   // can still be used
+            const expired = timeUp && (v.reusable || !v.used_by)
             return (
-              <tr key={v.code} className={v.used_by || expired ? 'done' : ''}>
+              <tr key={v.code} className={open ? '' : 'done'}>
                 <td><code>{v.code}</code></td>
                 <td>{v.created_by}</td>
                 <td className="muted">{when(v.created)}</td>
-                <td className="muted">{v.expires ? until(v.expires, zh) : (zh ? '不过期' : 'never')}</td>
-                <td>{v.used_by ? (zh ? `已用：${v.used_by}` : `used by ${v.used_by}`) : expired ? (zh ? '已过期' : 'expired') : (zh ? '未用' : 'unused')}</td>
+                <td className="muted">{v.reusable || !v.used_by ? (v.expires ? until(v.expires, zh) : (zh ? '不过期' : 'never')) : '—'}</td>
+                <td>
+                  {v.reusable && <span className="badge">{zh ? '可重复' : 'reusable'}</span>}{' '}
+                  {v.used_by_all.length
+                    ? (zh ? `已用 ${v.used_by_all.length} 次：${v.used_by_all.join('、')}` : `used ${v.used_by_all.length}×: ${v.used_by_all.join(', ')}`)
+                    : expired ? (zh ? '已过期' : 'expired') : (zh ? '未用' : 'unused')}
+                  {expired && v.used_by_all.length > 0 && <span className="muted">{zh ? '（已过期）' : ' (expired)'}</span>}
+                </td>
                 <td className="num">
-                  {!v.used_by && <>
-                    {!expired && <button className="mini" onClick={() => navigator.clipboard?.writeText(link(v.code))} title={zh ? '复制链接' : 'Copy link'}>⧉</button>}
-                    <button className="mini" onClick={() => drop(v.code)} title={zh ? '删除' : 'Delete'}>✕</button>
-                  </>}
+                  {open && <button className="mini" onClick={() => navigator.clipboard?.writeText(link(v.code))} title={zh ? '复制链接' : 'Copy link'}>⧉</button>}
+                  {!timeUp && (
+                    <button className="mini" onClick={() => toggle(v.code, !v.reusable)}
+                      title={v.reusable ? (zh ? '改成只能用一次' : 'Make it one-time') : (zh ? '改成可重复用（到期前谁都能用）' : 'Make it reusable until it expires')}>
+                      {v.reusable ? '1×' : '∞'}</button>
+                  )}
+                  {open && <button className="mini" onClick={() => drop(v.code)} title={v.reusable && v.used_by ? (zh ? '停用' : 'Stop it') : (zh ? '删除' : 'Delete')}>✕</button>}
                 </td>
               </tr>
             )
