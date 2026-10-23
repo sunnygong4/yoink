@@ -13,6 +13,8 @@ import { savedAudio } from './offline'
 import { leadArtist } from './text'
 
 const VOLUME = 'yoinker.volume'
+// a moment of silence (a tiny WAV) to unlock audio on iPhones
+const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA='
 const SMART_AHEAD = 40   // seconds before the end of the last song: ask for a recommendation (it downloads meanwhile)
 
 /** The audio element, the bar at the bottom, the queue drawer and the full-screen view. */
@@ -69,6 +71,27 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
   const failed = useCallback(() => {
     if (!online && song && !saved.has(song.id)) q.next()
   }, [online, song, saved, q])
+
+  // iPhones only let audio start inside a tap. Songs start a moment after one (the list re-renders, a saved song
+  // is read from the phone), so the first tap anywhere plays a silent sound on the element: from then on it may play.
+  useEffect(() => {
+    const unlock = () => {
+      const a = audio.current
+      if (!a) return
+      const nav = navigator as { audioSession?: { type: string } }
+      if (nav.audioSession) nav.audioSession.type = 'playback'   // play with the silent switch on (iOS 17+)
+      if (!a.src) {
+        a.src = SILENCE
+        a.play().then(() => { if (a.src === SILENCE) a.pause() }).catch(() => {})
+      } else if (a.paused) {
+        a.play().then(() => a.pause()).catch(() => {})
+      }
+      for (const ev of EVENTS) removeEventListener(ev, unlock, true)
+    }
+    const EVENTS = ['touchend', 'click', 'keydown'] as const
+    for (const ev of EVENTS) addEventListener(ev, unlock, true)
+    return () => { for (const ev of EVENTS) removeEventListener(ev, unlock, true) }
+  }, [])
 
   useEffect(() => {
     if (audio.current) audio.current.volume = volume
@@ -127,6 +150,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
   }, [q])
 
   async function ended() {
+    if (audio.current?.src === SILENCE) return   // the iPhone unlock sound, not a song
     if (q.repeat === 'one') { seek(0); audio.current?.play(); return }
     if (isLast && q.repeat === 'off' && q.smart) await recommend()   // short song: it may not have asked yet
     q.next()
@@ -177,7 +201,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
 
   const el = (
     <audio ref={audio} preload="auto"
-      onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+      onPlay={e => setPlaying(e.currentTarget.src !== SILENCE)} onPause={() => setPlaying(false)}
       onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
       onDurationChange={e => setDuration(e.currentTarget.duration)}
       onEnded={ended} onError={failed} />

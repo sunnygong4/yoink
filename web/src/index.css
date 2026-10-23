@@ -814,7 +814,7 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .pod-lyric b { font-size: 12px; color: #1b4fb0; }
 .pod-lyric span { font-size: 10px; color: #777; min-height: 12px; }
 .pod-lyric b, .pod-lyric span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pod-wheel { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); width: 186px; height: 186px; border-radius: 50%;
+.pod-wheel { position: absolute; left: 50%; top: 212px; transform: translateX(-50%); width: 186px; height: 186px; border-radius: 50%;
   background: radial-gradient(circle at 50% 35%, #ffffff, #f1f1f1 60%, #e0e0e0);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, .18), 0 1px 0 rgba(255, 255, 255, .8); touch-action: none; }
 .pod.black .pod-wheel { background: radial-gradient(circle at 50% 35%, #3c3c3f, #252527 60%, #1c1c1e); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6), 0 1px 0 rgba(255, 255, 255, .08); }
@@ -828,3 +828,37 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
   border: 1px solid #cfd2d6; background: linear-gradient(160deg, #f7f8f9, #d9dce0); box-shadow: 0 1px 1px rgba(0, 0, 0, .12); padding: 0; }
 .pod.black .pod-wheel .center { border-color: #111; background: linear-gradient(160deg, #3a3b3e, #1f2022); }
 .pod-wheel .center:active { background: linear-gradient(160deg, #d9dce0, #f7f8f9); }
+
+/* the phone is the iPod: no bezel, no background around it */
+.pod-stage.pod-full { padding: 0; background: #c9ccd1; }
+.pod.pod-full { border-radius: 0; box-shadow: none; }
+.pod.pod-full.black { box-shadow: none; }
+.pod-stage.pod-full:has(.pod.black) { background: #17181a; }
+.pod-stage { align-items: flex-start; }
+.pod-stage:not(.pod-full) { align-items: center; padding-top: 0; }
+.pod-stage:not(.pod-full) .pod { transform-origin: center; }
+.pod.pod-full .pod-screen { margin-top: max(0px, calc(env(safe-area-inset-top) * .3)); }
+
+/* split-screen menus */
+.pod-split { position: absolute; inset: 0; display: flex; }
+.pod-half { position: relative; width: 50%; height: 100%; border-right: 1px solid #b9bfc8; box-shadow: 1px 0 3px rgba(0, 0, 0, .15); z-index: 1; background: #fff; }
+.pod-half .pod-list li .r { display: none; }
+.pod-covers { position: relative; flex: 1; overflow: hidden; background: linear-gradient(#5b6270, #23262c); }
+.pod-covers::before { content: '♫'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, .35); font-size: 40px; }
+.pod-covers.empty { display: flex; align-items: center; justify-content: center; color: #666; font-size: 40px; background: linear-gradient(#444, #111); }
+.pod-covers img { position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover; animation: pod-fade 6s linear both; }
+.pod-covers img.drift-a { animation-name: pod-fade, pod-drift-a; animation-duration: 6s, 6s; }
+.pod-covers img.drift-b { animation-name: pod-fade, pod-drift-b; animation-duration: 6s, 6s; }
+@keyframes pod-fade { 0% { opacity: 0 } 12% { opacity: 1 } 88% { opacity: 1 } 100% { opacity: .2 } }
+@keyframes pod-drift-a { from { transform: scale(1) translate(4%, 3%) } to { transform: scale(1.12) translate(-4%, -3%) } }
+@keyframes pod-drift-b { from { transform: scale(1.12) translate(-3%, 4%) } to { transform: scale(1) translate(4%, -2%) } }
+
+/* a little more like the real screen: lighter header gloss, crisper rows */
+.pod-bar { background: linear-gradient(#fefefe, #e9ecf0 55%, #d3d8df); }
+.pod-list li { letter-spacing: -.01em; }
+.pod-np .art { width: 92px; height: 92px; }
+
+/* the iPod is placed by hand: centred at the top (a phone) or in the middle (anything wider) */
+.pod-stage { display: block; padding: 0; }
+.pod-stage .pod { position: absolute; left: 50%; top: 0; transform-origin: top center; }
+.pod-stage:not(.pod-full) .pod { top: 50%; transform-origin: center; }

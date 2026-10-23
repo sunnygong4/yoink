@@ -31,7 +31,7 @@ type Screen =
 
 const COLOUR = 'yoinker.pod.colour'
 const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-const BASE_W = 268, BASE_H = 440, ROW = 18.5, BAR = 18
+const BASE_W = 268, BASE_H = 440, ROWS = 8, SCREEN = 168, WHEEL = 186
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 const mb = (n: number) => (n >= 1e9 ? `${(n / 1073741824).toFixed(1)} GB` : `${(n / 1048576).toFixed(0)} MB`)
@@ -56,9 +56,17 @@ function buzz() {
 }
 
 let audioCtx: AudioContext | null = null
+/** The click sound needs its audio started inside a tap (iPhone): the first tap does that. */
+function primeClick() {
+  try {
+    audioCtx ??= new AudioContext()
+    if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {})
+  } catch { /* no audio */ }
+}
 function tick() {   // the click wheel's click
   buzz()
   try {
+    if (!audioCtx || audioCtx.state !== 'running') return
     audioCtx ??= new AudioContext()
     const o = audioCtx.createOscillator(), g = audioCtx.createGain()
     o.frequency.value = 2400
@@ -75,7 +83,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
 }) {
   const [stack, setStack] = useState<Screen[]>(() => [{ kind: 'list', id: 'root', title: 'iPod', sel: 0, top: 0 }])
   const [black, setBlack] = useState(() => { try { return localStorage.getItem(COLOUR) === 'black' } catch { return false } })
-  const [fit, setFit] = useState({ s: 1, h: BASE_H, screen: 168 })
+  const [fit, setFit] = useState({ s: 1, w: 256, h: BASE_H - 16, full: false })
   const [query, setQuery] = useState('')
   const [suggest, setSuggest] = useState<string[]>([])
   const [results, setResults] = useState<CatalogResults | null>(null)
@@ -86,18 +94,28 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   const [overlay, setOverlay] = useState(0)                        // volume shown until
   const input = useRef<HTMLInputElement>(null)
   const top = stack[stack.length - 1]
-  const rows = Math.max(6, Math.floor((fit.screen - BAR) / ROW))
+  const rows = ROWS
 
-  // as big as the phone allows; a taller phone gets a taller screen (more rows), not a bigger wheel
+  // a phone becomes the iPod (its body fills the screen, the wheel centred below the 4:3 screen);
+  // anything wider shows an iPod standing in the middle
   useLayoutEffect(() => {
     const onResize = () => {
-      const s = Math.min(innerWidth / BASE_W, innerHeight / BASE_H)
-      const h = Math.max(BASE_H - 12, innerHeight / s - 12)
-      setFit({ s, h, screen: Math.min(168 + (h - (BASE_H - 12)), h * 0.55) })
+      if (innerWidth <= 600 && innerHeight > innerWidth) {
+        const s = innerWidth / 256
+        setFit({ s, w: 256, h: innerHeight / s, full: true })
+      } else {
+        setFit({ s: Math.min(innerWidth / BASE_W, innerHeight / BASE_H) * 0.92, w: 256, h: BASE_H - 16, full: false })
+      }
     }
     onResize()
     addEventListener('resize', onResize)
     return () => removeEventListener('resize', onResize)
+  }, [])
+  useEffect(() => {
+    const prime = () => primeClick()
+    addEventListener('touchend', prime, true)
+    addEventListener('click', prime, true)
+    return () => { removeEventListener('touchend', prime, true); removeEventListener('click', prime, true) }
   }, [])
   useEffect(() => {
     document.documentElement.classList.add('pod-page')
@@ -147,7 +165,6 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         { label: t('search'), more: true, dim: !p.online, go: () => p.online && push({ kind: 'search', sel: 0, top: 0 }) },
         { label: t('forYou'), more: true, dim: !p.online, go: () => { if (!p.online) return; list('picks', t('forYou')); if (!picks) loadPicks(false) } },
         { label: t('podShuffleSongs'), go: () => { if (!pool.length) return message(t('podMusic'), t('podNoMusic')); if (!q.shuffle) q.toggleShuffle(); playList(pool, Math.floor(Math.random() * pool.length)) } },
-        { label: `✨ ${t('podLucky')}`, dim: !p.online || tr.luckyBusy, go: () => { if (p.online) { tr.lucky(); openNow() } } },
         ...(song ? [{ label: t('podNowPlaying'), more: true, go: openNow }] : []),
         ...(song?.radio ? [{ label: `♥ ${t('keep')}`, right: song.title, go: () => api.keep(song.id).then(p.onSong) }] : []),
         { label: t('thisDevice'), more: true, right: p.saved.size ? String(p.saved.size) : '', go: () => list('saved', t('thisDevice')) },
@@ -206,17 +223,39 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         ]
       }
       case 'saved': {
-        const here = p.library.filter(x => p.saved.has(x.id)).sort(by(x => x.title))
-        const missing = p.library.filter(x => x.status === 'ready' && !p.saved.has(x.id))
         const st = p.phone.status
+        const stored = [...(st?.songs ?? [])].sort((a, b) => collator.compare(a.title, b.title))
+        const playable = p.library.filter(x => p.saved.has(x.id)).sort(by(x => x.title))
+        const missing = p.library.filter(x => x.status === 'ready' && !p.saved.has(x.id))
         return [
           ...(syncing ? [{ label: t('podSaving', { d: syncing.done, n: syncing.total }), dim: true }] : []),
+          ...(playable.length ? [{ label: t('podPlayAll'), go: () => playList(playable, 0) }] : []),
           ...(!syncing && p.online && song?.status === 'ready' && !p.saved.has(song.id) && !song.radio
             ? [{ label: t('podSaveNow'), right: song.title, go: () => save([song]) }] : []),
           ...(!syncing && p.online && missing.length ? [{ label: t('podSaveAll', { n: missing.length }), go: () => save(missing) }] : []),
+          ...(!syncing && stored.length ? [{ label: t('podRemoveAll'), more: true, go: () => list('clearSaved', t('podRemoveAll')) }] : []),
           ...(st ? [{ label: t('used', { s: mb(st.usage) }), right: st.quota ? `${t('free')} ${mb(Math.max(0, st.quota - st.usage))}` : '', dim: true }] : []),
-          ...(here.length ? here.map((x, i) => ({ label: x.title, right: leadArtist(x.artist), go: () => playList(here, i) }))
+          ...(stored.length ? stored.map(x => ({ label: x.title, right: leadArtist(x.artist), more: true, go: () => list('savedSong', x.title, x.id) }))
             : [{ label: t('podNothingSaved'), dim: true }]),
+        ]
+      }
+      case 'savedSong': {   // one song saved here: play it, or take it off the phone
+        const x = p.phone.status?.songs.find(y => y.id === s.arg)
+        const mine = p.library.find(y => y.id === s.arg)
+        if (!x) return [{ label: t('podRemoved'), dim: true }]
+        return [
+          ...(mine ? [{ label: `▶ ${t('play')}`, go: () => { q.play([mine.id]); openNow() } }] : [{ label: t('notInLibrary'), dim: true }]),
+          { label: t('podRemoveThis'), go: () => { p.phone.sync([], [x.id]); setStack(st => st.slice(0, -1)) } },
+          { label: x.artist, dim: true },
+          ...(x.album ? [{ label: x.album, dim: true }] : []),
+          { label: mb(x.size || 0), dim: true },
+        ]
+      }
+      case 'clearSaved': {
+        const n = p.phone.status?.songs.length ?? 0
+        return [
+          { label: t('podCancel'), go: () => setStack(st => st.slice(0, -1)) },
+          { label: t('podRemoveAllYes', { n }), go: () => { p.phone.sync([], (p.phone.status?.songs ?? []).map(y => y.id)); setStack(st => st.slice(0, -1)) } },
         ]
       }
       case 'settings': return [
@@ -393,8 +432,16 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     </>
   )
 
+  // the iPod classic's menus: the list on the left, album covers drifting by on the right
+  const split = top.kind === 'list' && (top.id === 'root' || top.id === 'music')
+  const covers = [...new Set(pool.map(x => x.thumbnail).filter(Boolean) as string[])]
+
   let view: React.ReactNode
-  if (top.kind === 'list') view = listView(current, top.sel, top.top, rows)
+  if (top.kind === 'list') {
+    view = split
+      ? <div className="pod-split"><div className="pod-half">{listView(current, top.sel, top.top, rows)}</div><CoverPane covers={covers} /></div>
+      : listView(current, top.sel, top.top, rows)
+  }
   else if (top.kind === 'search') {
     view = <>
       <form className="pod-search" onSubmit={e => { e.preventDefault(); runSearch(query) }}>
@@ -429,9 +476,9 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   }
 
   return (
-    <div className="pod-stage">
-      <div className={'pod' + (black ? ' black' : '')} style={{ transform: `scale(${fit.s})`, height: fit.h }}>
-        <div className="pod-screen" style={{ height: fit.screen }}>
+    <div className={'pod-stage' + (fit.full ? ' pod-full' : '')}>
+      <div className={'pod' + (black ? ' black' : '') + (fit.full ? ' pod-full' : '')} style={{ width: fit.w, height: fit.h, transform: fit.full ? `translateX(-50%) scale(${fit.s})` : `translate(-50%, -50%) scale(${fit.s})` }}>
+        <div className="pod-screen" style={{ height: SCREEN }}>
           <div className="pod-bar">
             <span className="state">{song ? (tr.playing ? '▶' : '❚❚') : ''}</span>
             <span className="title">{busy ? `${t('preparing')}` : title}</span>
@@ -440,7 +487,9 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           </div>
           <div className="pod-view">{view}</div>
         </div>
-        <div className="pod-wheel" ref={wheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => { drag.current = null }}>
+        <div className="pod-wheel" ref={wheel}
+          style={{ top: fit.full ? 16 + SCREEN + Math.max(20, (fit.h - 16 - SCREEN - WHEEL) / 2) : undefined }}
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => { drag.current = null }}>
           <span className="pod-label w-menu">MENU</span>
           <span className="pod-label w-prev">⏮︎</span>
           <span className="pod-label w-next">⏭︎</span>
@@ -448,6 +497,23 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           <button className="center" onClick={() => select()} aria-label="Select" />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** The right half of the menus: one cover after another, slowly zooming and drifting (like the iPod's). */
+function CoverPane({ covers }: { covers: string[] }) {
+  const [i, setI] = useState(() => Math.floor(Math.random() * 1000))
+  useEffect(() => {
+    if (covers.length < 2) return
+    const timer = setInterval(() => setI(n => n + 1), 6000)
+    return () => clearInterval(timer)
+  }, [covers.length])
+  if (!covers.length) return <div className="pod-covers empty">♫</div>
+  const now = covers[i % covers.length]
+  return (
+    <div className="pod-covers">
+      <img key={i} src={now} alt="" className={i % 2 ? 'drift-a' : 'drift-b'} onError={e => { e.currentTarget.style.display = 'none' }} />
     </div>
   )
 }
