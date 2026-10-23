@@ -2,6 +2,7 @@
 import asyncio
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -200,8 +201,12 @@ def catalog_search(q: str, user=Depends(auth.current_user)):
     # songs that really are what was searched (all its words in the name, artist or album): few means the store
     # hardly knows it, and the web app looks on YouTube too
     matched = sum(cat.relevance(q, x["title"], x["artist"], x.get("album")) == 1 for x in songs)
-    return {"songs": mark(songs, user), "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs),
-            "matched": matched}
+    docs: set[str] = set()
+    songs = mark(songs, user, docs)
+    # songs on the server the store doesn't have (named by whoever added them): for everyone who searches
+    local = lib.local_search(q, user, docs)
+    return {"songs": songs, "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs),
+            "matched": matched + len(local), "local": local}
 
 
 class AlbumAdd(BaseModel):
@@ -221,7 +226,7 @@ def album_add(body: AlbumAdd, req: Request, user=Depends(auth.current_user)):
     return lib.add_album(todo, user)
 
 
-def mark(songs: list[dict], user: dict) -> list[dict]:
+def mark(songs: list[dict], user: dict, docs: set[str] | None = None) -> list[dict]:
     """Catalog songs: which are in this person's library (song_id) and which the store has already (instant:
     someone else, or the karaoke site, downloaded it)."""
     pool = lib.known()
@@ -231,6 +236,8 @@ def mark(songs: list[dict], user: dict) -> list[dict]:
         in_lib = doc and doc["id"] in mine
         r["song_id"] = doc["id"] if in_lib else None
         r["instant"] = bool(doc) and not in_lib   # the karaoke site already has it: adding takes a second
+        if doc and docs is not None:
+            docs.add(doc["id"])   # (the caller wants to know which store songs these are)
     return songs
 
 
@@ -248,6 +255,7 @@ def artist_page(key: str, req: Request, user=Depends(auth.current_user)):
     except Exception as e:
         raise HTTPException(502, i18n.tr(f"Couldn't load the artist: {e}", f"加载歌手失败：{e}"))
     a["top"] = mark([dict(s) for s in a["top"]], user)
+    a["local"] = lib.by_artist([a["name"], pages.resolve("artist", key), *(a.get("aliases") or [])], user)
     a["slug"] = pages.remember("artist", a["name"])
     return a
 
@@ -617,6 +625,39 @@ def download(sid: str, _=Depends(auth.current_user)):
     if orig := lib.original(doc):   # someone's own file: give it back exactly as it was imported
         return FileResponse(orig, filename=f"{name[:150]}{orig.suffix}")
     return FileResponse(lib.tagged(sid), media_type="audio/mp4", filename=f"{name[:150]}.m4a")
+
+
+class SongInfo(BaseModel):
+    title: str
+    artist: str = ""
+    album: str | None = None
+
+
+@app.put("/api/songs/{sid}/info")
+def song_info(sid: str, body: SongInfo, user=Depends(auth.current_user)):
+    """Fix a song's name / artist / album (for everyone: there's one copy of each song)."""
+    if not body.title.strip():
+        raise HTTPException(400, i18n.tr("A song needs a name", "歌名不能为空"))
+    try:
+        return lib.edit_info(sid, user, body.title, body.artist, body.album)
+    except LookupError:
+        raise HTTPException(404, i18n.tr("No such song", "没有这首歌"))
+    except PermissionError:
+        raise HTTPException(403, i18n.tr("Only people who have this song in their library can change it",
+                                         "歌库里有这首歌的人才能改它的信息"))
+
+
+@app.post("/api/songs/{sid}/cover")
+def song_cover_upload(sid: str, file: UploadFile = File(...), user=Depends(auth.current_user)):
+    try:
+        return lib.set_cover(sid, user, file.file)
+    except LookupError:
+        raise HTTPException(404, i18n.tr("No such song", "没有这首歌"))
+    except PermissionError:
+        raise HTTPException(403, i18n.tr("Only people who have this song in their library can change it",
+                                         "歌库里有这首歌的人才能改它的信息"))
+    except subprocess.CalledProcessError:
+        raise HTTPException(400, i18n.tr("That isn't a picture this can use", "这张图片用不了"))
 
 
 @app.get("/api/songs/{sid}/cover")

@@ -203,6 +203,62 @@ def relevance(q: str, *fields: str | None) -> float:
     return sum(w in hay for w in words) / len(words) if words else 0.0
 
 
+# ---------- naming a video: the song and artist in a fan upload's title ----------
+
+_COUNTRY = re.compile(r"(?i)^(north |south )?korea(n)?$|^dprk$|^ussr$|^soviet( union)?$|^china$|^japan$|^(19|20)\d\d$")
+_UPLOAD_NOISE = re.compile(r"(?i)(north korean|dprk|soviet|korean|chinese|japanese)\s+(song|songs|music|march)|"
+                           r"eng(lish)?\s*sub(s|titles?)?|translat(ion|ed)|with lyrics|subtitles?|"
+                           r"(full )?(album|version)|remix(ed)?")
+_HANGUL = re.compile(r"[가-힣]")
+_LATIN = re.compile(r"[A-Za-z]")
+
+
+def _tidy(s: str) -> str:
+    from songstore.keys import _BRACKETS, _NOISE
+    s = _UPLOAD_NOISE.sub(" ", _NOISE.sub(" ", _BRACKETS.sub(" ", s)))
+    return re.sub(r"\s+", " ", s).strip(" -–—|/·:,&+")
+
+
+def guess_name(title: str, channel: str, q: str) -> tuple[str | None, str]:
+    """(artist, song) from a video's title: "Pochonbo Electronic Ensemble - Young People of the Farm",
+    'North Korean song - "Young people of the farm" [Lyrics + translation]', "农场的年轻人 - Young People of the Farm
+    (Pochonbo Electronic Ensemble)". The part holding the search is the song; a name in brackets at the end, or the
+    other part of "X - Y", is the artist; countries, years and a title in another script aren't. None when unclear."""
+    if channel.endswith(" - Topic"):
+        return channel[:-len(" - Topic")], title
+    named = re.search(r"《([^》]+)》", title)   # 王菲《匆匆那年》
+    if named:
+        return (_tidy(title[:named.start()]) or None), named.group(1).strip()
+    quoted = re.search(r'["“「]([^"”」]{2,})["”」]', title)
+    names = [m.strip() for m in re.findall(r"[(（]([^)）]{3,60})[)）]", title)
+             if not re.search(r"(?i)live|remix|ver|feat|ft\.|cover|edit|official|lyrics?|\d{4}", m)]
+    if quoted:
+        return (names[-1] if names else None), quoted.group(1).strip()
+    # what's in 【】 / [] may be the song itself (周杰倫 Jay Chou【晴天 Sunny Day】), or just noise ([Lyrics + translation])
+    boxed = [_tidy(m) for m in re.findall(r"[【\[]([^】\]]+)[】\]]", title)]
+    body = re.sub(r"[(（][^)）]*[)）]|[【\[][^】\]]*[】\]]", " ", title)
+    parts = [_tidy(p) for p in re.split(r"\s+[-–—|｜]\s+|\s*/\s*", body)]
+    parts = [p for p in parts if p and not _COUNTRY.match(p)]
+    boxed = [b for b in boxed if b and relevance(q, b) > 0]
+    if boxed and (not parts or relevance(q, boxed[0]) > max(relevance(q, p) for p in parts)):
+        return (parts[0] if parts else None), boxed[0]
+    if not parts:
+        return None, _tidy(title) or title
+    # the part holding the search is the song; when none does, "Artist - Title" (the last part)
+    song = max(reversed(parts), key=lambda p: relevance(q, p))
+    rest = [p for p in parts if p is not song]
+    artist = None
+    if rest:
+        other = rest[0]
+        # "농장의 젊은이들/Young People of the Farm": the same title in Korean, not an artist
+        other_script = bool(_HANGUL.search(other)) != bool(_HANGUL.search(song)) and bool(_LATIN.search(other)) != bool(_LATIN.search(song))
+        if not other_script and relevance(q, other) < 1:
+            artist = other
+    if not artist and names:
+        artist = names[-1]   # "... - Young People of the Farm (Pochonbo Electronic Ensemble)"
+    return artist, song
+
+
 def uploads(q: str, n: int = 12) -> list[dict]:
     """找不到的歌: YouTube Music's songs for the query (real title / artist / album), then YouTube's videos,
     for songs the store catalog doesn't know (niche, indie, covers)."""
@@ -224,7 +280,11 @@ def uploads(q: str, n: int = 12) -> list[dict]:
             if r["id"] in seen or not r.get("duration") or r["duration"] > se.MAX_DURATION:
                 continue
             seen.add(r["id"])
-            out.append({**r, "tags": r.get("tags") or se.tag(r)})
+            if "ytmusic" in (r.get("tags") or []):
+                artist, song = r["channel"], r["title"]
+            else:
+                artist, song = guess_name(r["title"], r["channel"], q)
+            out.append({**r, "tags": r.get("tags") or se.tag(r), "name": {"title": song, "artist": artist}})
     # what holds the most of the search first; YouTube Music's own tracks before videos when equal
     out.sort(key=lambda r: -relevance(q, r["title"], r["channel"], r.get("album")))
     out = out[:n]

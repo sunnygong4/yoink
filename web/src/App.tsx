@@ -15,7 +15,8 @@ import Player from './Player'
 import { useIPod } from './ipod'
 import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
-import { type Actions, CatalogRow, SongStatus, uploadSong, UploadRow } from './Rows'
+import { type Actions, CatalogRow, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
+import EditSong from './EditSong'
 import { flat, leadArtist } from './text'
 
 export default function App() {
@@ -202,12 +203,12 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             together={together} setTogether={setTogether} />}
           {page.kind === 'friends' && <FriendsPage me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'admin' && (user.is_admin ? <AdminPage /> : <p className="pad hint">{t('notFound')}</p>)}
-          {page.kind === 'library' && <Library view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
-          {page.kind === 'search' && <Search key={page.q ?? ''} initial={page.q} byId={byId} currentId={q.current} open={open} {...actions} />}
+          {page.kind === 'library' && <Library onSong={onSong} view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
+          {page.kind === 'search' && <Search key={page.q ?? ''} initial={page.q} byId={byId} currentId={q.current} open={open} onSong={onSong} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
           {page.kind === 'phone' && <DevicePage ipod={phone} user={user} library={library} phone />}
-          {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} {...common} />}
+          {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} onSong={onSong} {...common} />}
           {page.kind === 'album' && <AlbumPage key={page.key} pageKey={page.key} {...common} />}
         </main>
       </div>
@@ -278,8 +279,8 @@ function groupAlbums(songs: Song[]): Item[] {
 
 type View = 'songs' | 'albums' | 'artists'
 
-function Library({ view, onView, songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
-  view: View; onView: (v: View) => void
+function Library({ view, onView, onSong, songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+  view: View; onView: (v: View) => void; onSong: (s: Song) => void
   songs: Song[]; saved: Set<string>; online: boolean
   currentId?: string; open: (p: Page) => void; onImport: () => void; onRemove: (id: string) => void
 }) {
@@ -290,6 +291,7 @@ function Library({ view, onView, songs, saved, online, currentId, open, onImport
   const [selected, setSelected] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [picked, setPicked] = useState<string | null>(null)   // the album Cover Flow is showing
+  const [editing, setEditing] = useState<Song | null>(null)
   useEffect(() => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)) } catch { /* private mode */ } }, [prefs])
 
   const f = filter.trim().toLowerCase()
@@ -372,6 +374,7 @@ function Library({ view, onView, songs, saved, online, currentId, open, onImport
             <button className="mini" onClick={e => { e.stopPropagation(); enqueue(s.id) }} title={t('addToQueue')}><I.Plus size={13} /></button>
             <a className="mini" href={api.downloadUrl(s.id)} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
           </>}
+          {s.status === 'ready' && <button className="mini" onClick={e => { e.stopPropagation(); setEditing(s) }} title={t('editSong')}>✎</button>}
           <button className="mini" onClick={e => { e.stopPropagation(); onRemove(s.id) }} title={t('removeFromLibrary')}><I.Close size={12} /></button>
         </td>
       </tr>
@@ -437,6 +440,7 @@ function Library({ view, onView, songs, saved, online, currentId, open, onImport
           onPlay={k => play((flowSongs.get(k) ?? []).filter(s => s.status === 'ready').map(s => s.id))}
           onOpen={a => open(albumPage(a.artist, a.album))} />
       )}
+      {editing && <EditSong song={editing} onClose={() => setEditing(null)} onSaved={onSong} />}
       {view === 'artists' && songs.length > 0 ? (
         <ArtistGrid songs={shown} open={open} play={ids => play(ids)} playable={playable} />
       ) : songs.length === 0 ? (
@@ -500,8 +504,8 @@ function ArtistGrid({ songs, open, play, playable }: {
   )
 }
 
-function Search({ initial, byId, currentId, open, ...actions }: Actions & {
-  initial?: string; byId: Map<string, Song>; currentId?: string; open: (p: Page) => void
+function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions & {
+  initial?: string; byId: Map<string, Song>; currentId?: string; open: (p: Page) => void; onSong: (s: Song) => void
 }) {
   const [q, setQ] = useState(initial ?? '')
   const [uploads, setUploads] = useState<Upload[] | null>(null)   // 找不到的歌: YouTube Music / YouTube finds
@@ -555,6 +559,17 @@ function Search({ initial, byId, currentId, open, ...actions }: Actions & {
                 </span>
                 <span className="top-open">{t('openPage')} ›</span>
               </button>
+            </section>
+          )}
+          {res.local.length > 0 && (
+            <section>
+              <h2 className="section-title">{t('onServerTitle')}</h2>
+              <div className="results">
+                {res.local.map((l, i) => (
+                  <LocalRow key={l.song.id} song={l.song} inLibrary={l.in_library} odd={i % 2 === 1} currentId={currentId}
+                    onPlay={() => { onSong(l.song); actions.play([l.song.id]) }} onAdded={onSong} />
+                ))}
+              </div>
             </section>
           )}
           {res.artists.length > (top?.kind === 'artist' ? 1 : 0) && (

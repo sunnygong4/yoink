@@ -43,6 +43,8 @@ def song_id(source: str, vid: str) -> str:
 
 def view(doc: dict) -> dict:
     artist, title = artist_title(doc)
+    if doc.get("display_title") and not doc.get("display_artist"):
+        artist, title = "", doc["display_title"]   # named without an artist (a fan upload): not the uploader's channel
     return {
         "id": doc["id"],
         "title": title or doc.get("title") or doc["id"],
@@ -194,6 +196,83 @@ def source_file(doc: dict) -> Path | None:
 
 
 # ---------- catalog songs <-> the store ----------
+
+# ---------- songs already on the server, for everyone to find ----------
+
+def on_server() -> list[dict]:
+    """Songs anyone can play right away: downloaded, and kept by someone (or the karaoke site's), not the smart-play
+    songs that pass through."""
+    kept = {r[0] for r in conn().execute("select distinct song_id from user_songs")}
+    return [d for d in known() if d["id"] in kept or not d.get("music_radio")]
+
+
+def local_search(q: str, user: dict, skip: set[str], limit: int = 8) -> list[dict]:
+    """Songs on the server that are what was searched (all its words in the name, artist or album), one per song:
+    what the store catalog doesn't know (a fan upload someone added and named) shows up for everyone after."""
+    mine = owned(user)
+    out, seen = [], set()
+    for d in on_server():
+        if d["id"] in skip:
+            continue
+        v = view(d)
+        if catalog.relevance(q, v["title"], v["artist"], v["album"]) < 1:
+            continue
+        k = work_key(d) or d["id"]
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"song": view_for(d, user, mine), "in_library": d["id"] in mine})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def by_artist(names: list[str], user: dict) -> list[dict]:
+    """The artist's songs on the server (their page lists them, for artists the store catalog hardly knows)."""
+    want = {catalog.flat(catalog.lead_artist(n)) for n in names if n}
+    mine = owned(user)
+    out, seen = [], set()
+    for d in on_server():
+        v = view(d)
+        if not v["artist"] or catalog.flat(catalog.lead_artist(v["artist"])) not in want:
+            continue
+        k = work_key(d) or d["id"]
+        if k not in seen:
+            seen.add(k)
+            out.append(view_for(d, user, mine))
+    out.sort(key=lambda s: s["title"].lower())
+    return out
+
+
+def edit_info(sid: str, user: dict, title: str, artist: str, album: str | None) -> dict:
+    """A song's name, artist and album, as whoever has it in their library (or an admin) puts them. There's one copy of
+    each song on the server, so everyone (and the karaoke site) sees the fix."""
+    doc = store.get(sid)
+    if not doc:
+        raise LookupError(sid)
+    if sid not in owned(user) and not user.get("is_admin"):
+        raise PermissionError(sid)
+    store.update(sid, display_title=title.strip()[:200], display_artist=artist.strip()[:200],
+                 album=(album or "").strip()[:200] or None, identified=True, edited_by=user["name"], edited_at=time.time())
+    return view_for(store.get(sid), user)
+
+
+def set_cover(sid: str, user: dict, upload) -> dict:
+    doc = store.get(sid)
+    if not doc:
+        raise LookupError(sid)
+    if sid not in owned(user) and not user.get("is_admin"):
+        raise PermissionError(sid)
+    tmp = store.song_dir(sid) / "cover.upload"
+    with open(tmp, "wb") as f:
+        shutil.copyfileobj(upload, f)
+    try:
+        to_jpeg(tmp, store.song_dir(sid) / "cover.jpg")
+    finally:
+        tmp.unlink(missing_ok=True)
+    store.update(sid, artwork=f"/api/songs/{sid}/cover?v={int(time.time())}", edited_by=user["name"], edited_at=time.time())
+    return view_for(store.get(sid), user)
+
 
 def known() -> list[dict]:
     """Songs that can be listened to without downloading: the library, plus what the karaoke site has."""

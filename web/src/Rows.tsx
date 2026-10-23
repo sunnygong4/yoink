@@ -18,10 +18,39 @@ export type Actions = {
 
 /** What an upload is called once added: a YouTube Music track has real details; a plain video is named from
  *  its title by the server (as an imported link is). */
-export function uploadSong(r: Source): UploadSong | undefined {
-  if (!r.tags?.includes('ytmusic')) return undefined
-  return { title: r.title, artist: r.channel, album: r.album ?? null, duration: r.duration,
-    artwork: `https://i.ytimg.com/vi/${r.id}/hqdefault.jpg` }
+export function uploadSong(r: Source | Upload): UploadSong | undefined {
+  const art = `https://i.ytimg.com/vi/${r.id}/hqdefault.jpg`
+  if (r.tags?.includes('ytmusic')) return { title: r.title, artist: r.channel, album: r.album ?? null, duration: r.duration, artwork: art }
+  // a video: the name worked out from its title (the artist left blank when unclear: not the uploader's channel)
+  const name = (r as Upload).name
+  return name ? { title: name.title, artist: name.artist ?? '', duration: r.duration, artwork: art } : undefined
+}
+
+/** A song already on the server that the store catalog doesn't know: plays at once, + adds it. */
+export function LocalRow({ song, inLibrary, odd, currentId, onPlay, onAdded }: {
+  song: Song; inLibrary: boolean; odd: boolean; currentId?: string; onPlay: () => void; onAdded: (s: Song) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [mine, setMine] = useState(inLibrary)
+  return (
+    <div className={'result' + (odd ? ' odd' : '') + (song.id === currentId ? ' now' : '')} onDoubleClick={onPlay}>
+      {song.thumbnail ? <img className="art" src={song.thumbnail} alt="" loading="lazy" /> : <div className="art" />}
+      <div className="result-text">
+        <span className="name">{song.title}</span>
+        <span className="sub">{song.artist || t('artistUnknown')}{song.album && ` — ${song.album}`} · {fmtTime(song.duration)}
+          {song.added_by && <> · <a onClick={e => { e.stopPropagation(); location.assign(`/usr/${encodeURIComponent(song.added_by!)}`) }}>{t('addedBy', { name: song.added_by })}</a></>}
+          <span className="tag good">{t('onServer')}</span></span>
+      </div>
+      <button className="pill" onClick={onPlay} title={t('playHint')}><I.Play size={10} /> {t('play')}</button>
+      {mine
+        ? <button className="pill" disabled title={t('inLibraryHint')}>✓ {t('inLibraryShort')}</button>
+        : <button className="pill" disabled={busy} onClick={async () => {
+          setBusy(true)
+          try { const s = await api.keep(song.id); setMine(true); onAdded(s) } catch (e) { alert((e as Error).message) }
+          setBusy(false)
+        }}><I.Plus size={10} /> {busy ? '…' : t('addToLibrary')}</button>}
+    </div>
+  )
 }
 
 /** A YouTube Music song / YouTube video found for the search: ▶ to listen, + to add. */
@@ -41,9 +70,9 @@ export function UploadRow({ r, odd, lib, currentId, listen, play, onAdded }: {
     <div className={'result' + (odd ? ' odd' : '') + (lib && lib.id === currentId ? ' now' : '')}>
       <img className="art wide" src={r.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
       <div className="result-text">
-        <span className="name">{r.title}</span>
-        <span className="sub">
-          {r.channel}{r.album && ` · ${r.album}`} · {fmtTime(r.duration)}
+        <span className="name">{r.name?.title || r.title}{r.name?.artist && <span className="by"> — {r.name.artist}</span>}</span>
+        <span className="sub" title={r.title}>
+          {r.tags.includes('ytmusic') ? r.channel : t('uploadedBy', { name: r.channel })}{r.album && ` · ${r.album}`} · {fmtTime(r.duration)}
           {r.tags.includes('ytmusic') ? <span className="tag good">{t('official')}</span> : <span className="tag">YouTube</span>}
         </span>
         {lib && !ready && <SongStatus song={lib} />}

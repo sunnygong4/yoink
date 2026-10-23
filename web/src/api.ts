@@ -18,6 +18,7 @@ export type Song = {
   added_at: number | null
   lyrics: boolean
   radio: boolean   // recommended by smart play, not (yet) in the library
+  source_title?: string | null   // the video's own title
 }
 
 // a real song from the catalog (iTunes): one per song per artist
@@ -37,7 +38,7 @@ export type CatalogSong = {
 // the name to give an upload when it's added (a catalog song, or a YouTube Music track's own details)
 export type UploadSong = { title: string; artist: string; album?: string | null; duration?: number | null; artwork?: string | null }
 // 找不到的歌: a YouTube Music song or YouTube video found for the search itself
-export type Upload = Source & { song_id: string | null }
+export type Upload = Source & { song_id: string | null; name: { title: string; artist: string | null } }
 
 // an upload of a song on YouTube / Bilibili
 export type Source = {
@@ -61,7 +62,9 @@ export type CatalogResults = {
   albums: SearchAlbum[]
   top: ({ kind: 'artist'; name: string; genre: string | null } | ({ kind: 'album' } & SearchAlbum)) | null
   matched: number   // songs that really are what was searched (all its words in the name / artist / album)
+  local: LocalSong[]   // songs on the server the store catalog doesn't have (named by whoever added them)
 }
+export type LocalSong = { song: Song; in_library: boolean }
 
 export type ArtistAlbum = { title: string; artist: string; year: string; artwork: string | null; tracks: number | null; single: boolean }
 
@@ -75,6 +78,7 @@ export type Artist = {
   formed: string | null
   albums: ArtistAlbum[]
   top: CatalogSong[]
+  local: Song[]   // their songs on the server
   slug: string
 }
 
@@ -140,6 +144,14 @@ export const api = {
   addFriend: (name: string) => call<{ relation: Relation }>(`/api/friends/${encodeURIComponent(name)}`, {}),
   removeFriend: (name: string) => call<{ relation: Relation }>(`/api/friends/${encodeURIComponent(name)}`, undefined, 'DELETE'),
   now: (song_id: string | null, playing: boolean) => call('/api/now', { song_id, playing }),
+  editSong: (id: string, info: { title: string; artist: string; album: string }) => call<Song>(`/api/songs/${id}/info`, info, 'PUT'),
+  songCover: async (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const r = await fetch(`/api/songs/${id}/cover`, { method: 'POST', body: form, headers: { 'x-lang': getLang() } })
+    if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({}))).detail || r.statusText)
+    return r.json() as Promise<Song>
+  },
   groups: () => call<GroupSummary[]>('/api/groups'),
   newGroup: (name: string) => call<{ id: number }>('/api/groups', { name }),
   group: (id: number) => call<Group>(`/api/groups/${id}`),

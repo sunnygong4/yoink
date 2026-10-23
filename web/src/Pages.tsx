@@ -3,7 +3,7 @@ import { api, fmtTime, type Album, type Artist, type Play, type Song } from './a
 import { t } from './i18n'
 import * as I from './icons'
 import { useCoverPalette } from './coverColor'
-import { type Actions, CatalogRow, SongStatus, SourcePicker } from './Rows'
+import { type Actions, CatalogRow, SongStatus, SourcePicker, LocalRow } from './Rows'
 import { flat, leadArtist } from './text'
 
 // Pages have their own links: / (library), /find, /artist/<slug>, /album/<artist slug>/<album slug>.
@@ -107,7 +107,9 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
 /** Library songs by this artist (any of a song's credited artists). */
 const byArtist = (songs: Song[], name: string) => songs.filter(s => flat(s.artist).includes(flat(name)) && flat(name).length > 0)
 
-export function ArtistPage({ pageKey, byId, library, currentId, open, ...actions }: Common & { pageKey: string }) {
+export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ...actions }: Common & {
+  pageKey: string; onSong: (s: Song) => void
+}) {
   const [version, setVersion] = useState(0)   // bumps after someone uploads a picture
   const { data: a, error } = useLoad<Artist>(() => api.artist(pageKey), [pageKey, version])
   const [editing, setEditing] = useState(false)
@@ -120,6 +122,8 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, ...actions
   if (error) return <p className="error pad">{error}</p>
   if (!a) return <p className="muted pad">{t('loading')}</p>
   const mine = byArtist(library, a.name).filter(s => s.status === 'ready')
+  // their songs others added to the server (all an artist the store hardly knows may have)
+  const local = (a.local ?? []).filter(s => !mine.some(m => m.id === s.id))
   const albums = a.albums.filter(x => !x.single)
   const singles = a.albums.filter(x => x.single)
 
@@ -177,6 +181,18 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, ...actions
                 </div>
                 <button className="pill" onClick={() => actions.play(mine.map(x => x.id), i)}><I.Play size={11} /> {t('play')}</button>
               </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {local.length > 0 && (
+        <section>
+          <h2 className="section-title">{t('onServerTitle')}</h2>
+          <div className="results">
+            {local.map((s, i) => (
+              <LocalRow key={s.id} song={s} inLibrary={!s.radio} odd={i % 2 === 1} currentId={currentId}
+                onPlay={() => { local.forEach(onSong); actions.play(local.map(x => x.id), i) }} onAdded={onSong} />
             ))}
           </div>
         </section>
