@@ -82,8 +82,9 @@ def admin(user=Depends(auth.current_user)):
     songs = [d for d in store if d and d.get("music_status")]
     stats = {"store_songs": len(songs), "ready": sum(d.get("music_status") == "ready" for d in songs),
              "smart_songs": sum(bool(d.get("music_radio")) for d in songs),
-             "invites_open": c.execute("select count(*) from invites where used_by is null").fetchone()[0]}
-    return {"people": people, "recent": recent, "stats": stats}
+             "invites_open": c.execute("select count(*) from invites where used_by is null and (expires is null or expires > ?)",
+                                       (time.time(),)).fetchone()[0]}
+    return {"people": people, "recent": recent, "stats": stats, "invites": auth.invites()}
 
 
 @app.get("/api/setup")
@@ -136,7 +137,25 @@ def remove_device(did: int, user=Depends(auth.current_user)):
 
 @app.post("/api/invites")
 def invite(user=Depends(auth.current_user)):
-    return {"code": auth.create_invite(user["id"])}
+    return auth.create_invite(user["id"])
+
+
+def _admin(user=Depends(auth.current_user)) -> dict:
+    if not user["is_admin"]:
+        raise HTTPException(404, "Not Found")   # as if there were no such page
+    return user
+
+
+@app.post("/api/admin/invites")
+def admin_invite(user=Depends(_admin)):
+    return auth.create_invite(user["id"])
+
+
+@app.delete("/api/admin/invites/{code}")
+def admin_delete_invite(code: str, _=Depends(_admin)):
+    if not auth.delete_invite(code):
+        raise HTTPException(409, i18n.tr("Already used (or gone)", "已经用过了（或已删除）"))
+    return {"ok": True}
 
 
 # ---------- search + library ----------

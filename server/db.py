@@ -77,3 +77,6 @@ def conn() -> sqlite3.Connection:
 
 
 conn().executescript(_SCHEMA)
+# invites that run out (added after the first invites, which have none: they never expire)
+if "expires" not in {r["name"] for r in conn().execute("pragma table_info(invites)")}:
+    conn().execute("alter table invites add column expires real")

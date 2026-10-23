@@ -14,10 +14,26 @@ const when = (ts: number | null) => {
   return new Date(ts * 1000).toLocaleDateString(zh ? 'zh-CN' : undefined)
 }
 
+const link = (code: string) => `${location.origin}/?invite=${code}`
+const until = (ts: number, zh: boolean) => {
+  const d = (ts * 1000 - Date.now()) / 86400000
+  if (d <= 0) return new Date(ts * 1000).toLocaleDateString(zh ? 'zh-CN' : undefined)
+  if (d < 1) return zh ? `${Math.max(1, Math.round(d * 24))} 小时后` : `in ${Math.max(1, Math.round(d * 24))} h`
+  return zh ? `${Math.round(d)} 天后` : `in ${Math.round(d)} days`
+}
+
 export default function AdminPage() {
   const [data, setData] = useState<AdminData | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { api.admin().then(setData).catch(e => setError((e as Error).message)) }, [])
+  const [made, setMade] = useState('')   // the link of the invite just made
+  const load = () => api.admin().then(setData).catch(e => setError((e as Error).message))
+  useEffect(() => { load() }, [])
+  async function newInvite() {
+    try { const { code } = await api.adminInvite(); setMade(link(code)); load() } catch (e) { alert((e as Error).message) }
+  }
+  async function drop(code: string) {
+    try { await api.deleteInvite(code); load() } catch (e) { alert((e as Error).message) }
+  }
   const zh = getLang() === 'zh'
   if (error) return <p className="pad error">{error}</p>
   if (!data) return <p className="pad hint">…</p>
@@ -56,6 +72,44 @@ export default function AdminPage() {
               <td className="muted">{p.devices.map(d => `${d.name}${d.last_seen ? ` · ${when(d.last_seen)}` : ''}`).join(', ') || '—'}</td>
             </tr>
           ))}
+        </tbody>
+      </table>
+
+      <h2 className="section-title invites-title">
+        {zh ? '邀请码' : 'Invites'}
+        <button className="blue" onClick={newInvite}>{zh ? '+ 新建邀请码（7 天）' : '+ New invite (7 days)'}</button>
+      </h2>
+      {made && (
+        <div className="notice">{zh ? '新邀请链接：' : 'New invite link:'}
+          <input readOnly value={made} onFocus={e => e.target.select()} />
+          <button onClick={() => navigator.clipboard?.writeText(made)}>{zh ? '复制' : 'Copy'}</button>
+          <button onClick={() => setMade('')}>{zh ? '关闭' : 'Close'}</button>
+        </div>
+      )}
+      <table>
+        <thead><tr>
+          <th>{zh ? '邀请码' : 'Code'}</th><th>{zh ? '创建人' : 'Made by'}</th><th>{zh ? '创建' : 'Made'}</th>
+          <th>{zh ? '到期' : 'Expires'}</th><th>{zh ? '状态' : 'Status'}</th><th />
+        </tr></thead>
+        <tbody>
+          {data.invites.map(v => {
+            const expired = !v.used_by && v.expires !== null && v.expires * 1000 < Date.now()
+            return (
+              <tr key={v.code} className={v.used_by || expired ? 'done' : ''}>
+                <td><code>{v.code}</code></td>
+                <td>{v.created_by}</td>
+                <td className="muted">{when(v.created)}</td>
+                <td className="muted">{v.expires ? until(v.expires, zh) : (zh ? '不过期' : 'never')}</td>
+                <td>{v.used_by ? (zh ? `已用：${v.used_by}` : `used by ${v.used_by}`) : expired ? (zh ? '已过期' : 'expired') : (zh ? '未用' : 'unused')}</td>
+                <td className="num">
+                  {!v.used_by && <>
+                    {!expired && <button className="mini" onClick={() => navigator.clipboard?.writeText(link(v.code))} title={zh ? '复制链接' : 'Copy link'}>⧉</button>}
+                    <button className="mini" onClick={() => drop(v.code)} title={zh ? '删除' : 'Delete'}>✕</button>
+                  </>}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
 

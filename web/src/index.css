@@ -904,3 +904,8 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .admin td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .admin .badge { font-size: 10px; background: #3b7ad8; color: #fff; border-radius: 3px; padding: 0 4px; margin-left: 4px; }
 .admin .muted { color: var(--grey); }
+
+.admin .invites-title { display: flex; align-items: center; gap: 12px; }
+.admin .invites-title button { margin-left: auto; font-weight: normal; }
+.admin tr.done td { color: #999; }
+.admin code { font-size: 12px; background: #f1f3f5; padding: 1px 5px; border-radius: 3px; }

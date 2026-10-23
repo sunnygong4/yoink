@@ -88,6 +88,8 @@ def register(name: str, pw: str, invite: str | None) -> dict:
             inv = c.execute("select * from invites where code = ? and used_by is null", ((invite or "").strip(),)).fetchone()
             if not inv:
                 raise HTTPException(403, tr("That invite code is wrong or already used", "邀请码无效或已被用过"))
+            if inv["expires"] and inv["expires"] < time.time():
+                raise HTTPException(403, tr("That invite has expired: ask for a new one", "邀请码过期了，找人要个新的吧"))
         if c.execute("select 1 from users where name = ?", (name,)).fetchone():
             raise HTTPException(409, tr("That name is taken", "这个名字已经有人用了"))
         uid = c.execute("insert into users (name, pw_hash, is_admin, invited_by, created) values (?, ?, ?, ?, ?)",
@@ -108,7 +110,24 @@ def login(name: str, pw: str) -> dict:
     return public(row)
 
 
-def create_invite(user_id: int) -> str:
+INVITE_DAYS = 7
+
+
+def create_invite(user_id: int, days: float = INVITE_DAYS) -> dict:
     code = secrets.token_urlsafe(6)
-    conn().execute("insert into invites (code, created_by, created) values (?, ?, ?)", (code, user_id, time.time()))
-    return code
+    now = time.time()
+    conn().execute("insert into invites (code, created_by, created, expires) values (?, ?, ?, ?)",
+                   (code, user_id, now, now + days * 86400))
+    return {"code": code, "expires": now + days * 86400}
+
+
+def invites() -> list[dict]:
+    """Every invite, newest first, with who made it and who used it (for /admin)."""
+    return [dict(r) for r in conn().execute(
+        "select i.code, i.created, i.expires, c.name as created_by, u.name as used_by from invites i "
+        "join users c on c.id = i.created_by left join users u on u.id = i.used_by order by i.created desc")]
+
+
+def delete_invite(code: str) -> bool:
+    """An unused invite, gone (a used one stays: it says who invited whom)."""
+    return conn().execute("delete from invites where code = ? and used_by is null", (code,)).rowcount > 0
