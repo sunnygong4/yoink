@@ -153,6 +153,7 @@ export const api = {
   add: (r: Source, song: CatalogSong) => call<Song>('/api/songs', { ...r, song }),
   retry: (id: string) => call(`/api/songs/${id}/retry`, {}),
   remove: (id: string) => fetch(`/api/songs/${id}`, { method: 'DELETE' }),
+  forYou: (fresh = false) => call<CatalogSong[]>(`/api/foryou${fresh ? '?fresh=1' : ''}`),
   radio: (seed: string | null, exclude: string[]) => call<Song>('/api/radio', { seed, exclude }),
   played: (id: string) => call('/api/plays', { song_id: id }),
   history: () => call<Play[]>('/api/plays'),

@@ -311,6 +311,63 @@ def recommend(seed: str | None, exclude: list[str], user: dict) -> dict | None:
     return _queue(have["id"], fields, user, radio=True)
 
 
+_for_you: dict[int, tuple[float, list[dict]]] = {}   # user id -> (when, picks)
+FOR_YOU_TTL = 30 * 60
+
+
+def for_you(user: dict, fresh: bool = False, limit: int = 24) -> list[dict]:
+    """猜你喜欢: catalog-style songs like what this person plays and keeps (YouTube Music radios of a few of their
+    songs, recent plays weighted in), none already in their library. Nothing is downloaded until they press ▶."""
+    hit = _for_you.get(user["id"])
+    if hit and not fresh and time.time() - hit[0] < FOR_YOU_TTL:
+        return hit[1]
+    mine = owned(user)
+    # seeds: songs that came from YouTube / Bilibili (an imported file's tags can be anything, "Test Artist")
+    ready = [sid for sid in mine if sid.startswith(("yt-", "bili-")) and (d := store.get(sid)) and d.get("music_status") == "ready"]
+    recent = [r["song_id"] for r in conn().execute(
+        "select song_id from plays where user_id = ? order by played_at desc limit 20", (user["id"],))]
+    recent = [s for s in dict.fromkeys(recent) if s.startswith(("yt-", "bili-")) and store.get(s)]
+    seeds = list(dict.fromkeys(random.sample(recent, min(2, len(recent))) + random.sample(ready, min(5, len(ready)))))[:5]
+    if not seeds:
+        return []
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(5) as ex:
+        radios = [r for r in ex.map(lambda s: _safe_radio(store.get(s)), seeds) if r]
+    per_seed = max(4, -(-limit // max(1, len(radios))))   # no one seed fills the whole page
+    pool = known()
+    have = {work_key(store.get(s) or {}) for s in mine}
+    out, seen = [], set()
+    taken = [0] * len(radios)
+    for cap in (per_seed, limit):   # then, if that's not enough, more from the seeds that have more
+        for i in range(max(map(len, radios), default=0)):   # interleave the radios: a bit of each seed near the top
+            for j, lst in enumerate(radios):
+                if i >= len(lst) or taken[j] >= cap:
+                    continue
+                song = dict(lst[i][1])
+                if not song.get("album"):   # music videos and covers have messy titles ("汪蘇瀧 -《有點甜》"): album tracks only
+                    continue
+                song["title"] = catalog.clean_title(song["title"])
+                k = catalog.song_key(song["artist"], song["title"])
+                wk = work_key({"display_title": song["title"], "display_artist": song["artist"]})
+                if k in seen or wk in have or ((d := find(song, pool)) and d["id"] in mine):
+                    continue
+                seen.add(k)
+                taken[j] += 1
+                out.append({**song, "album": song.get("album") or "", "artwork": song.get("artwork") or "",
+                            "year": "", "key": k, "versions": 1})
+    out = out[:limit]
+    _for_you[user["id"]] = (time.time(), out)
+    return out
+
+
+def _safe_radio(doc: dict | None) -> list[tuple[dict, dict]]:
+    try:
+        return catalog.radio(doc) if doc else []
+    except Exception as e:   # one seed's radio failing shouldn't empty the page
+        print(f"[library] for you: {e}")
+        return []
+
+
 # ---------- importing people's own files ----------
 
 IMPORT_TYPES = {".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".oga", ".opus", ".wma", ".aif", ".aiff", ".alac",

@@ -729,3 +729,8 @@ body.no-scroll .drawer { top: 0; bottom: 0; }
 .classic-full .lyrics-nudge button { border-color: currentColor; background: transparent; }
 .classic-full .lyrics p.past { opacity: .45; }
 @media (hover: none) { .lyrics-nudge { opacity: .8; } }
+
+/* ---------- 猜你喜欢 ---------- */
+.for-you .section-title { display: flex; align-items: center; gap: 10px; }
+.for-you .refresh { margin-left: auto; margin-right: 12px; font-weight: normal; }
+.for-you .hint { color: var(--grey); }

@@ -160,6 +160,12 @@ def mark(songs: list[dict], user: dict) -> list[dict]:
     return songs
 
 
+@app.get("/api/foryou")
+def for_you(fresh: bool = False, user=Depends(auth.current_user)):
+    """猜你喜欢 (the search page before anything's searched)."""
+    return mark(lib.for_you(user, fresh), user)
+
+
 @app.get("/api/artist")
 def artist_page(key: str, req: Request, user=Depends(auth.current_user)):
     """key: a slug (/artist/ZhouJieLun) or a name."""

@@ -421,6 +421,7 @@ function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
           onArtist={name => open(artistPage(name))} />
       </div>
       {error && <p className="error pad">{error}</p>}
+      {!res && !busy && <ForYou byId={byId} currentId={currentId} open={open} {...actions} />}
       {res && (
         <div className="search-results">
           {top && (
@@ -476,6 +477,37 @@ function Search({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
         </div>
       )}
     </>
+  )
+}
+
+/** 猜你喜欢: before anything is searched, songs like what this person listens to. */
+function ForYou({ byId, currentId, open, ...actions }: Actions & { byId: Map<string, Song>; currentId?: string; open: (p: Page) => void }) {
+  const [songs, setSongs] = useState<CatalogSong[] | null>(null)
+  const [added, setAdded] = useState<Record<string, string>>({})
+  const [picker, setPicker] = useState<string | null>(null)
+  const load = useCallback((fresh = false) => {
+    setSongs(null)
+    api.forYou(fresh).then(setSongs).catch(() => setSongs([]))
+  }, [])
+  useEffect(() => load(), [load])
+
+  return (
+    <section className="for-you">
+      <h2 className="section-title">
+        {t('forYou')}
+        <button className="pill refresh" onClick={() => load(true)} disabled={!songs} title={t('forYouMore')}><I.Repeat size={10} /> {t('forYouMore')}</button>
+      </h2>
+      {!songs ? <p className="pad hint">{t('forYouLoading')}</p>
+        : !songs.length ? <p className="pad hint">{t('forYouEmpty')}</p>
+          : <div className="results">
+            {songs.map((r, i) => (
+              <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')}
+                currentId={currentId} open={picker === r.key} onToggle={() => setPicker(picker === r.key ? null : r.key)}
+                onAdded={s => { setAdded(a => ({ ...a, [r.key]: s.id })); setPicker(null) }}
+                play={actions.play} preview={actions.preview} openPage={open} />
+            ))}
+          </div>}
+    </section>
   )
 }
 
