@@ -1,5 +1,6 @@
 // The iPod's brain: pairing with a Yoinker account, syncing songs onto the device (the extension's
-// IndexedDB), and handing playback commands to the offscreen player (which keeps playing when the popup closes).
+// IndexedDB), the whole library when online, and handing playback commands to the offscreen player (which keeps
+// playing when the popup closes).
 import { allSongs, putSong, removeSongs } from './db.js'
 
 const pairing = async () => (await chrome.storage.local.get('pair')).pair || null
@@ -22,7 +23,41 @@ async function player() {
 async function toPlayer(msg) {
   if (msg.type === 'state' && !(await chrome.offscreen.hasDocument?.())) return { song: null }   // nothing playing
   await player()
+  if (msg.type === 'play') {
+    // the player gets the songs themselves (synced or not) and the way to fetch the ones that aren't
+    const { songs } = await library()
+    const pick = new Map(songs.map(s => [s.id, s]))
+    return chrome.runtime.sendMessage({ to: 'offscreen', ...msg, songs: msg.ids.map(id => pick.get(id)).filter(Boolean),
+      pair: await pairing() })
+  }
   return chrome.runtime.sendMessage({ to: 'offscreen', ...msg })
+}
+
+// ---------- the library: everything in the account when online, the synced songs when not ----------
+
+async function library() {
+  const local = await allSongs()
+  const saved = new Set(local.map(s => s.id))
+  const pair = await pairing()
+  let remote = null
+  if (pair && navigator.onLine) {
+    try {
+      const r = await fetch(`${pair.origin}/api/songs`, { headers: { Authorization: `Bearer ${pair.token}` }, signal: AbortSignal.timeout(8000) })
+      if (r.ok) {
+        remote = (await r.json()).filter(s => s.status === 'ready' && !s.radio)
+          .map(({ id, title, artist, artist_main, album, duration, thumbnail, added_at }) => ({ id, title, artist, artist_main, album, duration, thumbnail, added_at }))
+        await chrome.storage.local.set({ library: remote })   // for the next time, in case the network's slow then
+      }
+    } catch { /* offline after all, or the site's away */ }
+  }
+  if (!remote) {
+    // no connection: only what's on the iPod can play
+    return { online: false, songs: local.map(s => ({ ...s, saved: true })) }
+  }
+  const merged = remote.map(s => ({ ...s, saved: saved.has(s.id) }))
+  // synced songs no longer in the library still play from the iPod
+  for (const s of local) if (!merged.some(x => x.id === s.id)) merged.push({ ...s, saved: true })
+  return { online: true, songs: merged }
 }
 
 // ---------- syncing ----------
@@ -106,6 +141,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     }
     if (msg.from === 'popup') {
       if (msg.type === 'status') return status()
+      if (msg.type === 'library') return library()
       if (msg.type === 'player') return toPlayer(msg.cmd)
     }
     return { error: 'unknown request' }

@@ -24,7 +24,8 @@ function run(store, mode, fn) {
   return db().then(d => new Promise((resolve, reject) => {
     const tx = d.transaction(store, mode)
     const result = fn(tx.objectStore(store))
-    tx.oncomplete = () => resolve(result?.result ?? result)
+    // a request's own result (undefined for a key that isn't there), else what fn returned
+    tx.oncomplete = () => resolve(result instanceof IDBRequest ? result.result : result)
     tx.onerror = () => reject(tx.error)
     tx.onabort = () => reject(tx.error)
   }))

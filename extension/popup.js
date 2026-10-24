@@ -1,5 +1,6 @@
 // The iPod's software: menus driven by the click wheel (drag around it to scroll; MENU / ⏮ / ⏭ / ⏯ and the
-// centre button), Now Playing, Settings. The songs come from the extension's own storage, so it all works offline.
+// centre button), Now Playing, Settings. Online the menus have the whole library (songs not synced are fetched as
+// they play); offline, just what's synced onto the iPod.
 import { allSongs, getArt } from './db.js'
 
 const view = document.getElementById('view')
@@ -15,18 +16,22 @@ const T = {
     off: 'Off', on: 'Songs', one: 'One', all: 'All', silver: 'Silver', black: 'Black', of: 'of', capacity: 'Capacity',
     available: 'Available', version: 'Version', paired: 'Synced with', notPaired: 'Not synced yet', unknown: 'Unknown',
     noMusic: 'No music', noMusicHint: 'Open music.sunnygong.com, pick this iPod under Devices and sync some songs.',
+    onIpod: 'On this iPod', offline: 'Offline: synced songs only', recent: 'Recently Added',
     volume: 'Volume', scrub: 'Scrub' },
   zh: { music: '音乐', artists: '表演者', albums: '专辑', songs: '歌曲', shuffle: '随机播放歌曲', now: '正在播放',
     settings: '设置', about: '关于本机', allSongs: '所有歌曲', shuffleSet: '随机播放', repeat: '重复', theme: '外壳颜色',
     off: '关', on: '歌曲', one: '单曲', all: '全部', silver: '银色', black: '黑色', of: '/', capacity: '容量',
     available: '可用', version: '版本', paired: '同步自', notPaired: '尚未同步', unknown: '未知',
     noMusic: '没有音乐', noMusicHint: '打开 music.sunnygong.com，在「设备」里选择这台 iPod，同步几首歌吧。',
+    onIpod: '本机上的歌', offline: '没有网络：只有同步过的歌', recent: '新加入',
     volume: '音量', scrub: '进度' },
 }[lang]
 
 const collator = new Intl.Collator([lang, 'zh', 'en'], { numeric: true, sensitivity: 'base' })
 const byName = f => (a, b) => collator.compare(f(a) || '', f(b) || '')
 let songs = []
+let online = false
+const artistOf = s => s.artist_main || s.artist || T.unknown
 let player = { song: null }
 const stack = []
 
@@ -70,18 +75,21 @@ const empty = () => ({ kind: 'message', title: T.music, html: `<b>${T.noMusic}</
 function musicMenu() {
   if (!songs.length) return push(empty())
   push(list(T.music, () => [
+    ...(online ? [] : [{ label: T.offline, dim: true }]),
+    { label: T.recent, more: true, go: () => songList(T.recent, [...songs].sort((a, b) => (b.added_at || b.added / 1000 || 0) - (a.added_at || a.added / 1000 || 0)).slice(0, 100)) },
     { label: T.artists, more: true, go: artists },
     { label: T.albums, more: true, go: () => albums(songs, T.albums) },
     { label: T.songs, more: true, go: () => songList(T.songs, [...songs].sort(byName(s => s.title))) },
+    ...(online ? [{ label: T.onIpod, more: true, go: () => songList(T.onIpod, songs.filter(s => s.saved).sort(byName(s => s.title))) }] : []),
   ]))
 }
 
 function artists() {
-  const names = [...new Set(songs.map(s => s.artist || T.unknown))].sort(collator.compare)
+  const names = [...new Set(songs.map(artistOf))].sort(collator.compare)
   push(list(T.artists, () => names.map(name => ({
     label: name, more: true,
     go: () => {
-      const mine = songs.filter(s => (s.artist || T.unknown) === name)
+      const mine = songs.filter(s => artistOf(s) === name)
       albums(mine, name, true)
     },
   }))))
@@ -143,7 +151,7 @@ let artFor = null, artUrl = null
 async function render() {
   const s = top()
   titleEl.textContent = s.title
-  stateEl.textContent = player.song ? (player.playing ? '▶' : '❚❚') : ''
+  stateEl.textContent = (player.song ? (player.playing ? '▶' : '❚❚') : '') + (online ? '' : ' ✈︎')
   if (s.kind === 'message') {
     view.innerHTML = `<div class="message">${s.html}</div>`
   } else if (s.kind === 'list') {
@@ -161,9 +169,10 @@ async function render() {
     if (!p.song) { view.innerHTML = `<div class="message"><b>${T.now}</b></div>`; return }
     if (artFor !== p.song.id) {
       artFor = p.song.id
-      if (artUrl) URL.revokeObjectURL(artUrl)
+      if (artUrl?.startsWith('blob:')) URL.revokeObjectURL(artUrl)
       const blob = await getArt(p.song.id)
-      artUrl = blob ? URL.createObjectURL(blob) : null
+      // not synced: its cover straight from the stores' image servers
+      artUrl = blob ? URL.createObjectURL(blob) : (p.song.thumbnail && /^https:/.test(p.song.thumbnail) ? p.song.thumbnail : null)
     }
     const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
     const showVol = Date.now() < s.overlayUntil && s.mode === 'volume'
@@ -279,7 +288,11 @@ document.addEventListener('keydown', e => {
 ;(async () => {
   const { ipodColour } = await chrome.storage.local.get('ipodColour')
   if (ipodColour === 'black') ipod.classList.add('black')
-  songs = await allSongs()
+  // the whole library when online (the background asks the site), the synced songs when not
+  // (asked twice: the background worker may be just waking up)
+  const ask = () => chrome.runtime.sendMessage({ from: 'popup', type: 'library' }).catch(() => null)
+  const lib = (await ask()) || (await new Promise(r => setTimeout(r, 400)), await ask())
+  if (lib && !lib.error) { songs = lib.songs; online = lib.online } else { songs = (await allSongs()).map(s => ({ ...s, saved: true })) }
   player = await send({ type: 'state' }).catch(() => ({ song: null }))
   stack.push(root())
   if (player?.song?.id && player.playing) stack.push({ kind: 'now', title: T.now, mode: 'volume', overlayUntil: 0 })
