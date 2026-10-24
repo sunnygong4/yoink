@@ -128,14 +128,14 @@ def setup():
 def register(body: Credentials, resp: Response):
     user = auth.register(body.name, body.password, body.invite)
     auth.start_session(resp, user["id"])
-    return user
+    return me(user)   # (with the tutorials: a new account is shown its tutorial straight away)
 
 
 @app.post("/api/login")
 def login(body: Credentials, resp: Response):
     user = auth.login(body.name, body.password)
     auth.start_session(resp, user["id"])
-    return user
+    return me(user)
 
 
 @app.post("/api/logout")
