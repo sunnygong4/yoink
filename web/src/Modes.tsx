@@ -37,7 +37,7 @@ export function ModeButtons({ q, only }: { q: Queue; only?: 'shuffle' | 'repeat'
 /** ✨: one press plays a song smart play picks (like the current one, or like your library), right away. */
 export function LuckyButton({ tr }: { tr: Pick<Transport, 'lucky' | 'luckyBusy'> }) {
   return (
-    <button className={'square mode lucky' + (tr.luckyBusy ? ' busy' : '')} onClick={tr.lucky} disabled={tr.luckyBusy}
+    <button data-tour="lucky" className={'square mode lucky' + (tr.luckyBusy ? ' busy' : '')} onClick={tr.lucky} disabled={tr.luckyBusy}
       title={t('luckyHint')}><I.Sparkle size={15} /></button>
   )
 }

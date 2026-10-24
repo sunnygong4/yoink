@@ -9,6 +9,7 @@ import { FriendsPage, ProfilePage, userPage } from './People'
 import { GroupPage, GroupsPage, type Together } from './Groups'
 import AudioTest from './AudioTest'
 import Import from './Import'
+import Tour, { type TourStep } from './Tutorial'
 import Login from './Login'
 import { albumPage, AlbumPage, artistPage, ArtistPage, HistoryPage, type Page, pageFromUrl, preferPod, urlFor } from './Pages'
 import Player from './Player'
@@ -118,6 +119,31 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview, listen }
   const common = { ...actions, byId, library, currentId: q.current, open }
 
+  // ---------- the first-run tutorial (everyone does it once; ? in the sidebar plays it again) ----------
+  const [touring, setTouring] = useState(() => user.tutorials?.web === false && page.kind !== 'iphone')
+  const startCount = useRef(0)   // the library's size on reaching the "add a song" step
+  const zh = getLang() === 'zh'
+  const popular = zh ? '晴天 周杰伦' : 'Bohemian Rhapsody'
+  const niche = zh ? '弹舌 赵小六' : 'young people of the farm'
+  const tourSteps: TourStep[] = [
+    { title: t('tour1Title'), body: t('tour1Body') },
+    { title: t('tour2Title'), body: t('tour2Body'), target: '[data-tour=find]' },
+    { title: t('tour3Title'), body: t('tour3Body', { q: popular }), target: '[data-tour=songs] .result',
+      enter: () => { startCount.current = library.length; go({ kind: 'search', q: popular }) },
+      task: t('tour3Task'), done: () => library.length > startCount.current },
+    { title: t('tour4Title'), body: t('tour4Body'), target: '.search-results .top-card, [data-tour=songs] .result .sub' },
+    { title: t('tour5Title'), body: t('tour5Body', { q: niche }), target: '.search-results .uploads',
+      enter: () => go({ kind: 'search', q: niche }) },
+    { title: t('tour6Title'), body: t('tour6Body'), target: '.modal.window, [data-tour=import]',
+      enter: () => go({ kind: 'library' }), leave: () => setImporting(false),
+      action: { label: t('tour6Open'), run: () => setImporting(true) } },
+    { title: t('tour7Title'), body: t('tour7Body'), target: '[data-tour=library]', enter: () => { setImporting(false); go({ kind: 'library' }) } },
+    { title: t('tour8Title'), body: t('tour8Body'), target: '[data-tour=lucky]' },
+    { title: t('tour9Title'), body: t('tour9Body'), target: '[data-tour=devices]' },
+    { title: t('tour10Title'), body: t('tour10Body'), target: '[data-tour=friends]' },
+    { title: t('tour11Title'), body: t('tour11Body'), target: '[data-tour=help]' },
+  ]
+
   if (page.kind === 'audiotest') return <AudioTest library={library} onDone={() => go({ kind: 'iphone' })} />
   if (page.kind === 'iphone') {
     return (
@@ -132,7 +158,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
       <div className="frame">
         <aside className="sourcelist">
           <h4>{user.name}</h4>
-          <button className={page.kind === 'library' && !page.view ? 'on' : ''} onClick={() => go({ kind: 'library' })}>
+          <button data-tour="library" className={page.kind === 'library' && !page.view ? 'on' : ''} onClick={() => go({ kind: 'library' })}>
             <I.Library size={15} /> <span>{t('viewSongs')}</span> <em>{library.length || ''}</em>
           </button>
           <button className={page.kind === 'library' && page.view === 'albums' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'albums' })}>
@@ -142,7 +168,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <I.Mic size={15} /> <span>{t('viewArtists')}</span>
           </button>
           <h4>{t('friendsHeading')}</h4>
-          <button className={page.kind === 'friends' ? 'on' : ''} onClick={() => go({ kind: 'friends' })}>
+          <button data-tour="friends" className={page.kind === 'friends' ? 'on' : ''} onClick={() => go({ kind: 'friends' })}>
             <I.People size={15} /> <span>{t('friendsTitle')}</span> {requests > 0 && <em className="alert">{requests}</em>}
           </button>
           <button className={page.kind === 'groups' || page.kind === 'group' ? 'on' : ''} onClick={() => go({ kind: 'groups' })}>
@@ -152,11 +178,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <I.Person size={15} /> <span>{t('myPage')}</span>
           </button>
           <h4>{t('storeHeading')}</h4>
-          <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>
+          <button data-tour="find" className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>
             <I.Search size={15} /> <span>{t('find')}</span>
           </button>
-          <button onClick={() => setImporting(true)}><I.Upload size={15} /> <span>{t('importBtn')}</span></button>
-          <h4>{t('devicesHeading')}</h4>
+          <button data-tour="import" onClick={() => setImporting(true)}><I.Upload size={15} /> <span>{t('importBtn')}</span></button>
+          <h4 data-tour="devices">{t('devicesHeading')}</h4>
           <button className={page.kind === 'device' ? 'on' : ''} onClick={() => go({ kind: 'device' })}>
             <IPodPicture small /> <span>{ipod.status?.paired ? ipod.status.name : 'iPod'}</span>
             {ipod.status?.paired && <em>{ipod.status.songs.length}</em>}
@@ -180,6 +206,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }} title={t('languageHint')}>
               <span className="glyph lang-switch">{getLang() === 'zh' ? 'ENG' : '中'}</span>   {/* the language it switches to */}
             </button>
+            <button data-tour="help" onClick={() => setTouring(true)} title={t('tourAgain')}><span className="glyph lang-switch">?</span></button>
             <button onClick={onLogout} title={t('logout')}><I.LogOut size={13} /></button>
           </div>
         </aside>
@@ -228,6 +255,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
         <span className="status-text">{t('status', { n: ready.length, m: minutes })}</span>
       </footer>
       {importing && <Import onClose={() => setImporting(false)} />}
+      {touring && <Tour steps={tourSteps} onClose={() => {
+        setTouring(false)
+        setImporting(false)
+        api.tutorialDone('web').catch(() => {})   // finished or skipped: once is enough (? plays it again)
+      }} />}
     </div>
   )
 }
@@ -603,7 +635,7 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
             </section>
           )}
           {res.songs.length > 0 && (
-            <section>
+            <section data-tour="songs">
               <h2 className="section-title">{t('songsTitle')}</h2>
               <div className="results">
                 {res.songs.map((r, i) => (

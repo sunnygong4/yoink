@@ -1,6 +1,6 @@
 import { getLang } from './i18n'
 
-export type User = { id: number; name: string; is_admin: boolean }
+export type User = { id: number; name: string; is_admin: boolean; tutorials?: { web: boolean; pod: boolean } }
 
 export type Song = {
   id: string
@@ -144,6 +144,7 @@ async function call<T>(path: string, body?: unknown, method?: 'DELETE' | 'PUT' |
 
 export const api = {
   me: () => call<User>('/api/me'),
+  tutorialDone: (which: 'web' | 'pod', done = true) => call('/api/tutorial', { which, done }),
   admin: () => call<AdminData>('/api/admin'),
   profile: (name: string) => call<Profile>(`/api/users/${encodeURIComponent(name)}`),
   saveProfile: (bio: string, show: Record<string, string>) => call<Profile>('/api/profile', { bio, show }, 'PUT'),

@@ -98,6 +98,30 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   const [overlay, setOverlay] = useState(0)                        // volume shown until
   const input = useRef<HTMLInputElement>(null)
   const top = stack[stack.length - 1]
+  // ---------- the first-run lesson (each person once; Settings > tutorial plays it again) ----------
+  const [tour, setTour] = useState<number | null>(() => (p.user.tutorials?.pod === false ? 0 : null))
+  const [, tourTick] = useState(0)
+  const scrolled = useRef(0)
+  const wentIn = useRef(false)
+  useEffect(() => {
+    if (tour === null) return
+    scrolled.current = 0
+    const timer = setInterval(() => tourTick(n => n + 1), 300)   // the tasks tick as they're done
+    return () => clearInterval(timer)
+  }, [tour])
+  useEffect(() => { if (stack.length > 1) wentIn.current = true }, [stack.length])
+  const endTour = () => { setTour(null); api.tutorialDone('pod').catch(() => {}) }
+  const podSteps: { title: string; body: string; task?: string; done?: () => boolean }[] = [
+    { title: t('pt1Title'), body: t('pt1Body') },
+    { title: t('pt2Title'), body: t('pt2Body'), task: t('pt2Task'), done: () => scrolled.current >= 3 },
+    { title: t('pt3Title'), body: t('pt3Body'), task: t('pt3Task'), done: () => stack.length > 1 },
+    { title: t('pt4Title'), body: t('pt4Body'), task: t('pt4Task'), done: () => wentIn.current && stack.length === 1 },
+    { title: t('pt5Title'), body: t('pt5Body') },
+    { title: t('pt6Title'), body: t('pt6Body') },
+    { title: t('pt7Title'), body: t('pt7Body') },
+    { title: t('pt8Title'), body: t('pt8Body') },
+    { title: t('pt9Title'), body: t('pt9Body') },
+  ]
   const rows = ROWS
 
   // a phone becomes the iPod (its body fills the screen, the wheel centred below the 4:3 screen);
@@ -315,6 +339,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         { label: t('podLanguage'), right: getLang() === 'zh' ? '中文' : 'English', go: () => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender() } },
         { label: t('podColour'), right: black ? t('podBlack') : t('podSilver'), go: () => setBlack(b => !b) },
         { label: t('podAbout'), more: true, go: () => list('about', t('podAbout')) },
+        { label: t('tourTitle'), go: () => { setStack(st => st.slice(0, 1)); setTour(0) } },
         { label: t('podFullSite'), go: p.exit },
         { label: 'Audio test', go: p.audioTest },
         { label: t('logout'), go: p.onLogout },
@@ -380,6 +405,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
 
   const setTop = (f: (s: Screen) => Screen) => setStack(st => [...st.slice(0, -1), f(st[st.length - 1])])
   function scroll(step: number) {
+    scrolled.current++
     if (top.kind === 'list' || top.kind === 'search') {
       const n = current.length
       const sel = Math.max(0, Math.min(n - 1, top.sel + step))
@@ -576,6 +602,26 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           </div>
           <div className="pod-view">{view}</div>
         </div>
+        {tour !== null && (() => {
+          // the lesson's card: in the gap between the screen and the wheel (over the screen's foot when there's none)
+          const s = podSteps[tour]
+          const ok = s.done?.() ?? false
+          const gapTop = 16 + SCREEN + 4
+          const gap = fit.full ? Math.max(20, (fit.h - 16 - SCREEN - WHEEL) / 2) - 8 : 0
+          return (
+            <div className="pod-tour" style={fit.full && gap > 60 ? { top: gapTop, height: gap } : { top: 16 + SCREEN - 96, height: 92 }}>
+              <div className="pt-head"><b>{s.title}</b><span>{tour + 1} / {podSteps.length}</span></div>
+              <p>{s.body}</p>
+              {s.task && <p className={'pt-task' + (ok ? ' done' : '')}>{ok ? '✓' : '→'} {s.task}</p>}
+              <div className="pt-buttons">
+                <button className="pt-skip" onClick={() => endTour()}>{t('tourSkip')}</button>
+                {tour > 0 && <button onClick={() => setTour(tour - 1)}>{t('tourBack')}</button>}
+                <button className="pt-next" onClick={() => (tour === podSteps.length - 1 ? endTour() : setTour(tour + 1))}>
+                  {tour === podSteps.length - 1 ? t('tourFinish') : t('tourNext')}</button>
+              </div>
+            </div>
+          )
+        })()}
         <div className="pod-wheel" ref={wheel}
           style={{ top: fit.full ? 16 + SCREEN + Math.max(20, (fit.h - 16 - SCREEN - WHEEL) / 2) : undefined }}
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onClick={onWheelClick} onPointerCancel={() => { drag.current = null }}>

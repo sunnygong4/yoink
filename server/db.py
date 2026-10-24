@@ -90,6 +90,13 @@ create table if not exists group_songs (
     added_by integer not null references users(id),
     added_at real not null
 );
+-- one-off things per person: the first-run tutorials they've done ("tutorial:web", "tutorial:pod")
+create table if not exists user_flags (
+    user_id integer not null references users(id),
+    flag text not null,
+    at real not null,
+    primary key (user_id, flag)
+);
 create table if not exists sessions (
     token text primary key,
     user_id integer not null references users(id),

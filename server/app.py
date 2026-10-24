@@ -54,9 +54,35 @@ class Credentials(BaseModel):
     invite: str | None = None
 
 
+TUTORIALS = ("web", "pod")   # the full site / Windows app, and iPod mode on a phone
+
+
 @app.get("/api/me")
 def me(user=Depends(auth.current_user)):
-    return user
+    """Who's signed in, and which first-run tutorials they've done (each person does each once)."""
+    from db import conn
+    done = {r["flag"].split(":", 1)[1] for r in conn().execute(
+        "select flag from user_flags where user_id = ? and flag like 'tutorial:%'", (user["id"],))}
+    return {**user, "tutorials": {t: t in done for t in TUTORIALS}}
+
+
+class TutorialDone(BaseModel):
+    which: str
+    done: bool = True
+
+
+@app.post("/api/tutorial")
+def tutorial_done(body: TutorialDone, user=Depends(auth.current_user)):
+    """Finished (or skipped) a tutorial; done: false starts it again next time (the ? button)."""
+    from db import conn
+    if body.which not in TUTORIALS:
+        raise HTTPException(400, "unknown tutorial")
+    if body.done:
+        conn().execute("insert or replace into user_flags (user_id, flag, at) values (?, ?, ?)",
+                       (user["id"], f"tutorial:{body.which}", time.time()))
+    else:
+        conn().execute("delete from user_flags where user_id = ? and flag = ?", (user["id"], f"tutorial:{body.which}"))
+    return {"ok": True}
 
 
 @app.get("/api/admin")
