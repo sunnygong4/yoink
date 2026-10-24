@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api, type CatalogResults, type CatalogSong, type Lyrics, type Song, type Source, type Upload, type User } from './api'
 import { uploadSong } from './Rows'
+import { getQuality, type Quality, setQuality } from './quality'
 import { getLang, setLang, t } from './i18n'
 import type { IPod } from './ipod'
 import type { Transport } from './Modes'
@@ -83,6 +84,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   volume: number; setVolume: (v: number) => void; rerender: () => void
 }) {
   const [stack, setStack] = useState<Screen[]>(() => [{ kind: 'list', id: 'root', title: 'iPod', sel: 0, top: 0 }])
+  const [quality, setQ] = useState<Quality>(getQuality)
   const [black, setBlack] = useState(() => { try { return localStorage.getItem(COLOUR) === 'black' } catch { return false } })
   const [fit, setFit] = useState({ s: 1, w: 256, h: BASE_H - 16, full: false })
   const [query, setQuery] = useState('')
@@ -289,6 +291,11 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         return [
           { label: `✨ ${t('podSmartNext')}`, dim: !p.online, go: () => p.online && smartNext() },
           { label: t('autoplay'), right: q.smart ? t('podOn') : t('podOff'), go: q.toggleSmart },
+        { label: t('saveQuality'), right: t(`quality_${quality}`), go: () => {   // what songs saved on this phone take up
+          const order: Quality[] = ['high', 'normal', 'low']
+          const next = order[(order.indexOf(quality) + 1) % order.length]
+          setQuality(next); setQ(next)
+        } },
           ...(song.radio ? [{ label: `♥ ${t('keep')}`, go: () => api.keep(song.id).then(p.onSong) }] : []),
           ...(nextSong ? [{ label: t('podUpNext'), right: nextSong.title, dim: true }] : []),
           { label: t('podCancel'), go: () => setStack(st => st.slice(0, -1)) },

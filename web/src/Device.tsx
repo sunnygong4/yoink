@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, fmtTime, type Song, type User } from './api'
 import { t } from './i18n'
 import type { IPod } from './ipod'
+import { getQuality, QUALITIES, type Quality, setQuality } from './quality'
 
 const mb = (n: number) => (n >= 1e9 ? `${(n / 1073741824).toFixed(1)} GB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -25,6 +26,7 @@ export default function DevicePage({ ipod, user, library, phone }: { ipod: IPod;
   const [checked, setChecked] = useState<Set<string> | null>(null)   // null: as on the device
   const [filter, setFilter] = useState('')
   const [error, setError] = useState('')
+  const [quality, setQ] = useState<Quality>(getQuality)
 
   const onDevice = useMemo(() => new Set(status?.songs.map(s => s.id) ?? []), [status])
   const onDeviceKey = [...onDevice].sort().join()
@@ -114,6 +116,20 @@ export default function DevicePage({ ipod, user, library, phone }: { ipod: IPod;
           <span><i className="cap-audio" /> {t('audio')} {mb(status.usage)}</span>
           <span><i className="cap-free" /> {t('free')} {status.quota ? mb(status.quota - status.usage) : '—'}</span>
         </div>
+      </div>
+
+      {/* the quality songs are saved at: smaller files for less space */}
+      <div className="quality-row">
+        <b>{t('saveQuality')}</b>
+        <nav className="seg">
+          {QUALITIES.map(x => (
+            <button key={x.q} className={quality === x.q ? 'on' : ''} onClick={() => { setQuality(x.q); setQ(x.q) }}
+              title={x.kbps ? t('qualityHint', { kbps: x.kbps, mb: x.mbPerMin }) : t('qualityHighHint')}>{t(`quality_${x.q}`)}</button>
+          ))}
+        </nav>
+        <span className="muted small">{quality === 'high' ? t('qualityHighHint') : t('qualityLine', { kbps: QUALITIES.find(x => x.q === quality)!.kbps, mb: QUALITIES.find(x => x.q === quality)!.mbPerMin })}
+          {toAdd.length > 0 && <> · {t('toAddSize', { n: toAdd.length, s: mb(toAdd.reduce((n, s) => n + (s.duration || 210), 0) / 60 * QUALITIES.find(x => x.q === quality)!.mbPerMin * 1048576) })}</>}</span>
+        <span className="muted small">{t('qualityNote')}</span>
       </div>
 
       <div className="listbar">

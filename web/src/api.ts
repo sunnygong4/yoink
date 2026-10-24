@@ -211,8 +211,9 @@ export const api = {
   keep: (id: string) => call<Song>(`/api/songs/${id}/keep`, {}),
   lyrics: (id: string) => call<Lyrics>(`/api/songs/${id}/lyrics`),
   lyricsOffset: (id: string, offset: number) => call<{ offset: number }>(`/api/songs/${id}/lyrics-offset`, { offset }),
-  audioUrl: (id: string) => `/api/songs/${id}/audio`,
-  downloadUrl: (id: string) => `/api/songs/${id}/download`,
+  // q: the quality to save / download at (high is the file as it is)
+  audioUrl: (id: string, q?: string) => `/api/songs/${id}/audio${q && q !== 'high' ? `?q=${q}` : ''}`,
+  downloadUrl: (id: string, q?: string) => `/api/songs/${id}/download${q && q !== 'high' ? `?q=${q}` : ''}`,
   importLink: (url: string, info: { title: string; artist: string; album: string }) =>
     call<Song>('/api/songs/link', { url, ...info }),
   // XHR rather than fetch: it reports upload progress

@@ -64,7 +64,7 @@ async function library() {
 
 let syncing = null   // { done, total, current }
 
-async function sync(add, remove, tabId) {
+async function sync(add, remove, tabId, quality) {
   const pair = await pairing()
   if (!pair) throw new Error('not paired')
   if (remove.length) await removeSongs(remove)
@@ -80,7 +80,9 @@ async function sync(add, remove, tabId) {
       tell()
       try {
         const headers = { Authorization: `Bearer ${pair.token}` }
-        const r = await fetch(`${pair.origin}/api/songs/${encodeURIComponent(song.id)}/audio`, { headers })
+        // at the quality picked on the site (a smaller file to save space), or as it is
+        const q = ['normal', 'low'].includes(quality) ? `?q=${quality}` : ''
+        const r = await fetch(`${pair.origin}/api/songs/${encodeURIComponent(song.id)}/audio${q}`, { headers })
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const audio = await r.blob()
         let art = null
@@ -134,7 +136,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           return { ...(await status()), sameSite: true }
         case 'sync':
           if (syncing) return { error: 'already syncing' }
-          sync(msg.add || [], msg.remove || [], sender.tab?.id)   // runs on; progress goes to the tab
+          sync(msg.add || [], msg.remove || [], sender.tab?.id, msg.quality)   // runs on; progress goes to the tab
           return { started: true }
       }
       return { error: 'unknown request' }

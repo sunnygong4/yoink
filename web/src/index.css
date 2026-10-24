@@ -1005,3 +1005,6 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .sourcelist .source-link { display: flex; align-items: center; gap: 6px; padding: 3px 12px 3px 20px; color: inherit; text-decoration: none; font-size: 12px; }
 .sourcelist .source-link svg { color: #55616d; width: 15px; height: 15px; }
 .sourcelist .source-link:hover { background: rgba(0, 0, 0, .05); }
+
+.quality-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 28px 10px; border-bottom: 1px solid #ddd; background: #f7f8fa; }
+.quality-row .small { font-size: 11px; }

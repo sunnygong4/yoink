@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getQuality } from './quality'
 
 // Talking to the Yoinker iPod browser extension: its content script relays window messages
 // ({ source: 'yoinker-page' } out, { source: 'yoinker-ipod' } back) to the extension.
@@ -47,7 +48,7 @@ export function useIPod() {
   const unpair = () => request<IPodStatus>('unpair').then(setStatus)
   const sync = (add: object[], remove: string[]) => {
     setProgress({ done: 0, total: add.length, current: null, errors: [] })
-    return request('sync', { add, remove }).then(() => refresh())
+    return request('sync', { add, remove, quality: getQuality() }).then(() => refresh())   // at the chosen quality
   }
   return { present, status, progress, refresh, pair, unpair, sync }
 }

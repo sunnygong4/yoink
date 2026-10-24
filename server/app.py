@@ -623,16 +623,17 @@ def retry(sid: str, _=Depends(auth.current_user)):
 
 
 @app.get("/api/songs/{sid}/audio")
-def audio(sid: str, _=Depends(auth.current_user)):
+def audio(sid: str, q: str | None = None, _=Depends(auth.current_user)):
+    """q: high (as downloaded, ~256 kbps) / normal (128) / low (64): smaller files for saving to a device."""
     _doc_or_404(sid)
-    f = lib.store.file(sid, AUDIO)
+    f = lib.audio_at(sid, q if q in lib.QUALITY else None)
     if not f:
         raise HTTPException(404, i18n.tr("Not downloaded yet", "还没下载好"))
     return FileResponse(f, media_type="audio/mp4", headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/songs/{sid}/download")
-def download(sid: str, _=Depends(auth.current_user)):
+def download(sid: str, q: str | None = None, _=Depends(auth.current_user)):
     """The song as a file to keep: tagged with its name, album and cover, named "Artist - Title.m4a"."""
     doc = _doc_or_404(sid)
     if not lib.store.file(sid, AUDIO):
@@ -641,7 +642,7 @@ def download(sid: str, _=Depends(auth.current_user)):
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", f"{s['artist']} - {s['title']}").strip() or sid
     if orig := lib.original(doc):   # someone's own file: give it back exactly as it was imported
         return FileResponse(orig, filename=f"{name[:150]}{orig.suffix}")
-    return FileResponse(lib.tagged(sid), media_type="audio/mp4", filename=f"{name[:150]}.m4a")
+    return FileResponse(lib.tagged(sid, q if q in lib.QUALITY else None), media_type="audio/mp4", filename=f"{name[:150]}.m4a")
 
 
 class SongInfo(BaseModel):

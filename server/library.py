@@ -145,7 +145,11 @@ def _owner_count(sid: str) -> int:
     return conn().execute("select count(*) from user_songs where song_id = ?", (sid,)).fetchone()[0]
 
 
-MUSIC_FILES = (AUDIO, "download.m4a", "download.tmp.m4a", "audio.tmp.m4a")
+# the song at a lower quality, for saving space (kbps; "high" is the file as downloaded: AAC, 128 kbps from
+# YouTube's own AAC, 256 when it had to be converted)
+QUALITY = {"high": None, "normal": 96, "low": 64}
+MUSIC_FILES = (AUDIO, "download.m4a", "download.tmp.m4a", "audio.tmp.m4a",
+               *(f"{kind}-{k}k{tmp}.m4a" for k in (96, 64) for kind in ("audio", "download") for tmp in ("", ".tmp")))
 
 
 def clean_radio():
@@ -766,11 +770,44 @@ def friendly_error(raw: str) -> tuple[str | None, str]:
     return code, re.sub(r"\s+", " ", raw.replace("ERROR:", "")).strip()[:140]
 
 
-def tagged(sid: str) -> Path:
-    """audio.m4a with the song's name, album and cover embedded, for saving to a device. Made on first download
-    and remade when the song's details change after that."""
+_encoding = threading.Lock()
+
+
+def _kbps(f: Path) -> float:
+    """An audio file's bitrate (its size over its length: what the space is about)."""
+    probe = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(f)],
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    try:
+        return f.stat().st_size * 8 / 1000 / float(probe.stdout.strip())
+    except (ValueError, ZeroDivisionError):
+        return 9999.0
+
+
+def audio_at(sid: str, quality: str | None) -> Path | None:
+    """The song's audio at this quality: the file itself for "high", else a smaller AAC made from it the first time
+    someone asks (and kept, for the next one)."""
+    src = store.file(sid, AUDIO)
+    k = QUALITY.get(quality or "high")
+    if not src or not k or _kbps(src) <= k * 1.15:   # already that small: re-encoding would only lose quality
+        return src
+    out = store.song_dir(sid) / f"audio-{k}k.m4a"
+    with _encoding:   # one encode at a time (and not the same one twice)
+        if not (out.is_file() and out.stat().st_mtime >= src.stat().st_mtime):
+            tmp = out.with_name(f"audio-{k}k.tmp.m4a")
+            subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(src), "-vn", "-map", "0:a:0",
+                            "-c:a", "aac", "-b:a", f"{k}k", "-movflags", "+faststart", str(tmp)],
+                           check=True, capture_output=True, stdin=subprocess.DEVNULL)
+            os.replace(tmp, out)
+    return out
+
+
+def tagged(sid: str, quality: str | None = None) -> Path:
+    """The song with its name, album and cover embedded, for saving to a device, at this quality. Made on first
+    download and remade when the song's details change after that."""
     doc, d = store.get(sid), store.song_dir(sid)
-    out = d / "download.m4a"
+    src = audio_at(sid, quality)
+    k = QUALITY.get(quality or "high") if src and src.name != AUDIO else None   # (the original when it was small already)
+    out = d / (f"download-{k}k.m4a" if k else "download.m4a")
     if out.is_file() and out.stat().st_mtime >= doc.get("updated", 0):
         return out
     s = view(doc)
@@ -784,8 +821,8 @@ def tagged(sid: str) -> Path:
             pass
     pic = ["-i", str(cover), "-map", "0:a", "-map", "1", "-disposition:v:0", "attached_pic"] if cover.is_file() else []
     tags = [x for k in ("title", "artist", "album") if s.get(k) for x in ("-metadata", f"{k}={s[k]}")]
-    tmp = d / "download.tmp.m4a"
-    subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(d / AUDIO), *pic, "-c", "copy", *tags,
+    tmp = d / (f"download-{k}k.tmp.m4a" if k else "download.tmp.m4a")
+    subprocess.run([FFMPEG, "-nostdin", "-y", "-v", "error", "-i", str(src), *pic, "-c", "copy", *tags,
                     "-movflags", "+faststart", str(tmp)], check=True, capture_output=True, stdin=subprocess.DEVNULL)
     os.replace(tmp, out)
     return out

@@ -17,6 +17,7 @@ import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
 import { type Actions, CatalogRow, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
 import EditSong from './EditSong'
+import { getQuality } from './quality'
 import { flat, leadArtist, mainArtist } from './text'
 
 export default function App() {
@@ -377,7 +378,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
           {ok && <>
             <button className="mini" onClick={e => { e.stopPropagation(); playNext(s.id) }} title={t('playNext')}><I.PlayNext size={13} /></button>
             <button className="mini" onClick={e => { e.stopPropagation(); enqueue(s.id) }} title={t('addToQueue')}><I.Plus size={13} /></button>
-            <a className="mini" href={api.downloadUrl(s.id)} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
+            <a className="mini" href={api.downloadUrl(s.id, getQuality())} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
           </>}
           {s.status === 'ready' && <button className="mini" onClick={e => { e.stopPropagation(); setEditing(s) }} title={t('editSong')}>✎</button>}
           <button className="mini rm" onClick={e => { e.stopPropagation(); onRemove(s.id) }} title={t('removeFromLibrary')}><I.Close size={12} /></button>

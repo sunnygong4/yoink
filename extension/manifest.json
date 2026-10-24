@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Yoinker iPod",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "An iPod classic for your Yoinker library: sync songs from music.sunnygong.com and play them anywhere, even offline.",
   "action": {
     "default_popup": "popup.html",

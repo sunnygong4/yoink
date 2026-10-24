@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Song } from './api'
 import type { IPod, IPodSong, IPodStatus, SyncProgress } from './ipod'
+import { getQuality } from './quality'
 
 // Songs saved on this phone / computer: the audio, cover and lyrics go into the "yoinker-music" cache (the service
 // worker serves covers and lyrics from it when offline), and the list of what's saved into localStorage.
@@ -29,7 +30,7 @@ export async function savedAudio(id: string): Promise<string | null> {
 const coverUrl = (thumb: string) => (thumb.startsWith('/') ? thumb : `/api/cover?${new URLSearchParams({ url: thumb })}`)
 
 async function save(cache: Cache, s: Song): Promise<number> {
-  const r = await fetch(api.audioUrl(s.id))
+  const r = await fetch(api.audioUrl(s.id, getQuality()))   // at this device's quality
   if (!r.ok) throw new Error(`${s.title}: ${r.status}`)
   const blob = await r.blob()
   await cache.put(key(s.id), new Response(blob, { headers: { 'content-type': 'audio/mp4', 'content-length': String(blob.size) } }))
