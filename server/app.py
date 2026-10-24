@@ -21,6 +21,7 @@ import i18n
 import catalog as cat
 import library as lib
 import pages
+from db import DATA
 import search as se
 import social
 import groups
@@ -781,6 +782,19 @@ def _learn_artists():
 
 
 threading.Thread(target=_learn_artists, daemon=True).start()
+
+
+# ---------- downloads: the Windows app (too big for the web app's own files) ----------
+
+DOWNLOADS = DATA / "downloads"
+
+
+@app.get("/download/{name}")
+def download_file(name: str):
+    f = (DOWNLOADS / name).resolve()
+    if DOWNLOADS.resolve() not in f.parents or not f.is_file():
+        raise HTTPException(404, "Not Found")
+    return FileResponse(f, filename=name, media_type="application/octet-stream")
 
 
 # ---------- web app ----------

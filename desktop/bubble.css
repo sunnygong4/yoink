@@ -1,0 +1,66 @@
+* { box-sizing: border-box; margin: 0; }
+html, body { background: transparent; overflow: hidden; user-select: none; font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.hidden { display: none !important; }
+button { font: inherit; cursor: pointer; }
+
+/* ---------- the bubble ---------- */
+.ball { position: fixed; inset: 0; border-radius: 50%; cursor: grab; }
+.ring { position: absolute; inset: 0; width: 64px; height: 64px; transform: rotate(-90deg); }
+.ring-bg { fill: none; stroke: rgba(0, 0, 0, .35); stroke-width: 4; }
+.ring-fg { fill: none; stroke: #4b9bff; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 188.5; stroke-dashoffset: 188.5; transition: stroke-dashoffset .9s linear; }
+.disc { position: absolute; inset: 4px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle, #2b2b2e 0 18%, #111 19% 100%) center / cover; box-shadow: 0 3px 10px rgba(0, 0, 0, .55); }
+.disc.spin { animation: spin 9s linear infinite; }
+.disc::after { content: ""; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #dcdcdc; box-shadow: 0 0 0 2px rgba(0, 0, 0, .5); }
+.note { color: #bbb; font-size: 22px; }
+@keyframes spin { to { transform: rotate(360deg) } }
+.ball-controls { position: absolute; inset: 4px; border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 0;
+  background: rgba(0, 0, 0, .55); opacity: 0; transition: opacity .15s; }
+.ball:hover .ball-controls { opacity: 1; }
+.ball-controls button { border: none; background: none; color: #fff; font-size: 13px; width: 18px; height: 24px; padding: 0; }
+.ball-controls button:hover { color: #8ec0ff; }
+
+/* ---------- the mini iPod ---------- */
+.mini { position: fixed; inset: 4px; border-radius: 22px; padding: 14px 14px 0; cursor: grab;
+  background: radial-gradient(120% 60% at 50% -10%, rgba(255, 255, 255, .75), rgba(255, 255, 255, 0) 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .06) 0 1px, rgba(0, 0, 0, .025) 1px 2px),
+    linear-gradient(175deg, #f3f4f6, #dfe2e6 40%, #c9cdd2);
+  box-shadow: 0 0 0 1px #9aa0a7, 0 0 0 2px #e9ebee, inset 0 1px 1px rgba(255, 255, 255, .9), 0 4px 12px rgba(0, 0, 0, .45); }
+.shrink { position: absolute; top: 3px; right: 9px; border: none; background: none; color: #8d939a; font-size: 16px; line-height: 1; padding: 0 3px; z-index: 3; }
+.shrink:hover { color: #333; }
+.screen { position: relative; height: 150px; border-radius: 5px; overflow: hidden; background: #fff; border: 3px solid #0e0e0f;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); }
+.screen::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(155deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, .06) 38%, rgba(255, 255, 255, 0) 39%); }
+.bar { height: 16px; display: flex; align-items: center; gap: 4px; padding: 0 5px; font-size: 10px; font-weight: bold; color: #1b1b1b;
+  background: linear-gradient(#fff, #eef0f3 45%, #d6dbe2 55%, #e4e8ed); border-bottom: 1px solid #8e97a3; }
+.bar .title { flex: 1; text-align: center; }
+#st { min-width: 12px; color: #3a6fd8; font-size: 8px; }
+.battery { width: 18px; height: 8px; border: 1px solid #555; border-radius: 2px; padding: 1px; position: relative; }
+.battery i { display: block; height: 100%; width: 85%; background: linear-gradient(#9de07a, #4aa52a); }
+.np { position: absolute; inset: 16px 0 0; padding: 7px 7px; }
+.art { position: absolute; left: 7px; top: 8px; width: 64px; height: 64px; background: linear-gradient(#f3f3f3, #d3d3d3) center / cover;
+  display: flex; align-items: center; justify-content: center; color: #999; font-size: 26px; box-shadow: 0 2px 4px rgba(0, 0, 0, .4); }
+.art.has span { display: none; }
+.meta { position: absolute; left: 79px; right: 6px; top: 12px; display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: #333; }
+.meta b { font-size: 11px; color: #111; }
+.meta b, .meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.progress { position: absolute; left: 7px; right: 7px; bottom: 6px; }
+.track { height: 7px; border: 1px solid #6d7d92; background: linear-gradient(#fff, #dce3ec); position: relative; }
+.track i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(#a7cbf5, #5293e2 50%, #3a7ad8 51%, #6aa6ee); }
+.times { display: flex; justify-content: space-between; font-size: 9px; margin-top: 2px; color: #222; }
+.wheel { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); width: 160px; height: 160px; border-radius: 50%; cursor: default;
+  background: radial-gradient(circle at 50% 30%, #fff, #f4f4f5 45%, #e4e5e7 80%, #d8dadd);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .12), 0 1px 0 rgba(255, 255, 255, .9), 0 0 0 1px rgba(0, 0, 0, .06); touch-action: none; }
+.label { position: absolute; color: #b3b8bf; font-size: 10px; font-weight: bold; letter-spacing: .06em; pointer-events: none; text-shadow: 0 1px 0 #fff; }
+.w-menu { top: 12px; left: 50%; transform: translateX(-50%); }
+.w-prev { left: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; }
+.w-next { right: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; }
+.w-play { bottom: 11px; left: 50%; transform: translateX(-50%); font-size: 11px; }
+.center { position: absolute; left: 50%; top: 50%; width: 62px; height: 62px; transform: translate(-50%, -50%); border-radius: 50%;
+  border: 1px solid #c4c8cd; background: radial-gradient(circle at 50% 35%, #fbfbfc, #e6e8eb 70%, #d5d8dc); box-shadow: 0 1px 2px rgba(0, 0, 0, .18); }
+.center:active { background: radial-gradient(circle at 50% 65%, #f2f3f5, #d9dce0); }
+
+.ball-controls button { display: inline-flex; align-items: center; justify-content: center; }
+.label svg { display: block; }
+.label { color: #b0b5bc; }

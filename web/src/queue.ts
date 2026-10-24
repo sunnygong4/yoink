@@ -44,13 +44,15 @@ export function useQueue() {
   const [q, setQ] = useState<State>(load)
   // false right after a page load: don't start blasting music on reload
   const [autoplay, setAutoplay] = useState(false)
+  // ticks on every "play this": the player starts it even when it's the song already loaded (paused)
+  const [starts, setStarts] = useState(0)
 
   useEffect(() => {
     try { localStorage.setItem(SAVED, JSON.stringify(q)) } catch { /* private mode */ }
   }, [q])
 
   const play = useCallback((ids: string[], start = 0) => {
-    setAutoplay(true)
+    setAutoplay(true); setStarts(x => x + 1)
     setQ(s => {
       if (!s.shuffle) return { ...s, ids, pos: start, original: null }
       // shuffle on: the chosen song first, the rest in random order
@@ -63,12 +65,12 @@ export function useQueue() {
     setQ(s => s.ids.length
       ? { ...s, ids: [...s.ids.slice(0, s.pos + 1), id, ...s.ids.slice(s.pos + 1)] }
       : { ...s, ids: [id], pos: 0 })
-    setAutoplay(true)
+    setAutoplay(true); setStarts(x => x + 1)
   }, [])
 
   /** Straight to this song: it goes right after the current one, and plays. */
   const playNow = useCallback((id: string) => {
-    setAutoplay(true)
+    setAutoplay(true); setStarts(x => x + 1)
     setQ(s => s.ids.length
       ? { ...s, ids: [...s.ids.slice(0, s.pos + 1), id, ...s.ids.slice(s.pos + 1)], pos: s.pos + 1 }
       : { ...s, ids: [id], pos: 0 })
@@ -76,10 +78,10 @@ export function useQueue() {
 
   const enqueue = useCallback((id: string) => {
     setQ(s => s.ids.length ? { ...s, ids: [...s.ids, id] } : { ...s, ids: [id], pos: 0 })
-    setAutoplay(true)
+    setAutoplay(true); setStarts(x => x + 1)
   }, [])
 
-  const jump = useCallback((pos: number) => { setAutoplay(true); setQ(s => ({ ...s, pos })) }, [])
+  const jump = useCallback((pos: number) => { setAutoplay(true); setStarts(x => x + 1); setQ(s => ({ ...s, pos })) }, [])
 
   const remove = useCallback((i: number) => {
     setQ(s => ({ ...s, ids: s.ids.filter((_, j) => j !== i), pos: i < s.pos ? s.pos - 1 : Math.min(s.pos, s.ids.length - 2) }))
@@ -120,7 +122,7 @@ export function useQueue() {
   const appendRecommended = useCallback((id: string) => setQ(s => s.ids.includes(id) ? s : { ...s, ids: [...s.ids, id] }), [])
 
   return {
-    ...q, autoplay, current: q.ids[q.pos] as string | undefined,
+    ...q, autoplay, starts, current: q.ids[q.pos] as string | undefined,
     play, playNext, enqueue, jump, remove, clearUpcoming, next, prev, toggleShuffle, cycleRepeat, toggleSmart,
     appendRecommended, playNow,
   }

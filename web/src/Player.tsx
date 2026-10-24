@@ -82,7 +82,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
       if (q.autoplay) start(a, 'song').catch(() => setPlaying(false))
     })
     return () => { live = false }
-  }, [song?.id, ready])
+  }, [song?.id, ready, q.starts])   // (starts: "play this" again, the same song included)
 
   // offline and this song isn't on the phone: on to the next one that is
   const failed = useCallback(() => {
@@ -225,6 +225,26 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     return () => { clearTimeout(timer); clearInterval(beat) }
   }, [song?.id, song?.status, playing])
 
+  // the Windows app (window.yoinkerDesktop): the bubble and the tray show what's on, and send play / pause / skip /
+  // seek (and the keyboard's media keys) here
+  const desktop = (window as { yoinkerDesktop?: { state: (s: unknown) => void; onCommand: (cb: (c: { type: string; time?: number }) => void) => () => void } }).yoinkerDesktop
+  useEffect(() => {
+    if (!desktop) return
+    const cover = song?.thumbnail ? (song.thumbnail.startsWith('/') ? location.origin + song.thumbnail : song.thumbnail) : null
+    desktop.state({ song: song ? { id: song.id, title: song.title, artist: song.artist, album: song.album, cover } : null,
+      playing, time: Math.floor(time), duration })
+  }, [desktop, song?.id, song?.title, playing, Math.floor(time / 5), duration])   // (every few seconds is enough: the bubble counts on)
+  const remote = useRef({ toggle: () => {}, next: () => {}, prev: () => {}, seek: (_t: number) => {} })
+  useEffect(() => {
+    if (!desktop) return
+    return desktop.onCommand(c => {
+      if (c.type === 'toggle') remote.current.toggle()
+      else if (c.type === 'next') remote.current.next()
+      else if (c.type === 'prev') remote.current.prev()
+      else if (c.type === 'seek' && c.time != null) remote.current.seek(c.time)
+    })
+  }, [desktop])
+
   // lock screen / headphone controls
   useEffect(() => {
     if (!('mediaSession' in navigator) || !song) return
@@ -265,6 +285,7 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     return () => window.removeEventListener('keydown', onKey)
   }, [toggle])
 
+  remote.current = { toggle, next, prev, seek }
   const tr: Transport = { playing, time, duration, toggle, seek, next, prev, lucky, luckyBusy }
   const preparing = song && !ready && song.status !== 'error'
 

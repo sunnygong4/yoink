@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: blob:; style-src 'self' 'unsafe-inline'">
+  <title>Yoinker</title>
+  <link rel="stylesheet" href="bubble.css">
+</head>
+<body>
+  <!-- closed: a round cover that turns while the music plays; hover for ⏮ ⏯ ⏭; click opens the mini iPod -->
+  <div id="ball" class="ball" title="Yoinker">
+    <svg class="ring" viewBox="0 0 64 64"><circle class="ring-bg" cx="32" cy="32" r="30" /><circle id="ring" class="ring-fg" cx="32" cy="32" r="30" /></svg>
+    <div id="disc" class="disc"><span class="note">♫</span></div>
+    <div class="ball-controls">
+      <button data-cmd="prev" title="上一首"><svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M18 6.2v11.6a.8.8 0 0 1-1.25.66L8.5 12.66a.8.8 0 0 1 0-1.32l8.25-5.8A.8.8 0 0 1 18 6.2z"/><rect fill="currentColor" x="5" y="5.5" width="2.5" height="13" rx="1"/></svg></button><button data-cmd="toggle" id="ballToggle" title="播放 / 暂停"></button><button data-cmd="next" title="下一首"><svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M6 6.2v11.6a.8.8 0 0 0 1.25.66l8.25-5.8a.8.8 0 0 0 0-1.32l-8.25-5.8A.8.8 0 0 0 6 6.2z"/><rect fill="currentColor" x="16.5" y="5.5" width="2.5" height="13" rx="1"/></svg></button>
+    </div>
+  </div>
+
+  <!-- open: a mini iPod classic, a remote for the main window's player -->
+  <div id="mini" class="mini hidden">
+    <button id="shrink" class="shrink" title="收起">–</button>
+    <div class="screen">
+      <div class="bar"><span id="st"></span><span class="title">Now Playing</span><span class="battery"><i></i></span></div>
+      <div class="np">
+        <div id="art" class="art"><span>♫</span></div>
+        <div class="meta"><b id="title">Yoinker</b><span id="artist">没有在播放</span><span id="album"></span></div>
+        <div class="progress"><div class="track"><i id="bar"></i></div>
+          <div class="times"><span id="t0">0:00</span><span id="t1">-0:00</span></div></div>
+      </div>
+    </div>
+    <div id="wheel" class="wheel">
+      <span class="label w-menu">MENU</span><span class="label w-prev"><svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M18 6.2v11.6a.8.8 0 0 1-1.25.66L8.5 12.66a.8.8 0 0 1 0-1.32l8.25-5.8A.8.8 0 0 1 18 6.2z"/><rect fill="currentColor" x="5" y="5.5" width="2.5" height="13" rx="1"/></svg></span><span class="label w-next"><svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M6 6.2v11.6a.8.8 0 0 0 1.25.66l8.25-5.8a.8.8 0 0 0 0-1.32l-8.25-5.8A.8.8 0 0 0 6 6.2z"/><rect fill="currentColor" x="16.5" y="5.5" width="2.5" height="13" rx="1"/></svg></span><span class="label w-play"><svg viewBox="0 0 30 24" width="15" height="12"><path fill="currentColor" d="M3 5.5v13a1 1 0 0 0 1.5.86l9-6.5a1 1 0 0 0 0-1.72l-9-6.5A1 1 0 0 0 3 5.5z"/><rect fill="currentColor" x="17" y="5" width="3.5" height="14" rx="1"/><rect fill="currentColor" x="23.5" y="5" width="3.5" height="14" rx="1"/></svg></span>
+      <button id="center" class="center" title="播放 / 暂停"></button>
+    </div>
+  </div>
+  <script src="bubble.js"></script>
+</body>
+</html>

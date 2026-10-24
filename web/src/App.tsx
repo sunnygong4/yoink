@@ -135,20 +135,20 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <I.Library size={15} /> <span>{t('viewSongs')}</span> <em>{library.length || ''}</em>
           </button>
           <button className={page.kind === 'library' && page.view === 'albums' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'albums' })}>
-            <span className="glyph">◉</span> <span>{t('viewAlbums')}</span>
+            <I.Album size={15} /> <span>{t('viewAlbums')}</span>
           </button>
           <button className={page.kind === 'library' && page.view === 'artists' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'artists' })}>
-            <span className="glyph">♪</span> <span>{t('viewArtists')}</span>
+            <I.Mic size={15} /> <span>{t('viewArtists')}</span>
           </button>
           <h4>{t('friendsHeading')}</h4>
           <button className={page.kind === 'friends' ? 'on' : ''} onClick={() => go({ kind: 'friends' })}>
-            <span className="glyph">☺</span> <span>{t('friendsTitle')}</span> {requests > 0 && <em className="alert">{requests}</em>}
+            <I.People size={15} /> <span>{t('friendsTitle')}</span> {requests > 0 && <em className="alert">{requests}</em>}
           </button>
           <button className={page.kind === 'groups' || page.kind === 'group' ? 'on' : ''} onClick={() => go({ kind: 'groups' })}>
-            <span className="glyph">♫</span> <span>{t('groupsTitle')}</span> {together && <em>🎧</em>}
+            <I.Headphones size={15} /> <span>{t('groupsTitle')}</span> {together && <em>🎧</em>}
           </button>
           <button className={page.kind === 'user' && page.name.toLowerCase() === user.name.toLowerCase() ? 'on' : ''} onClick={() => go(userPage(user.name))}>
-            <span className="glyph">◍</span> <span>{t('myPage')}</span>
+            <I.Person size={15} /> <span>{t('myPage')}</span>
           </button>
           <h4>{t('storeHeading')}</h4>
           <button className={page.kind === 'search' ? 'on' : ''} onClick={() => go({ kind: 'search' })}>
@@ -160,6 +160,11 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             <IPodPicture small /> <span>{ipod.status?.paired ? ipod.status.name : 'iPod'}</span>
             {ipod.status?.paired && <em>{ipod.status.songs.length}</em>}
           </button>
+          {!(window as { yoinkerDesktop?: unknown }).yoinkerDesktop && (   // the Windows app: offered, except inside it
+            <a className="source-link" href="/download/Yoinker.exe" download title={t('desktopHint')}>
+              <I.Download size={15} /> <span>{t('desktopApp')}</span>
+            </a>
+          )}
           {canSave && (
             <button className={page.kind === 'phone' ? 'on' : ''} onClick={() => go({ kind: 'phone' })}>
               <PhonePicture small /> <span>{t('thisDevice')}</span> <em>{saved.size || ''}</em>
@@ -168,13 +173,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {/* the rest, as one row of buttons at the bottom (like iTunes' + / shuffle / repeat under its list) */}
           <div className="source-foot">
             <button className={page.kind === 'history' ? 'on' : ''} onClick={() => go({ kind: 'history' })} title={t('history')}>
-              <span className="glyph">◷</span>
+              <I.Clock size={13} />
             </button>
-            <button onClick={invite} title={t('invite')}><I.Plus size={13} /></button>
+            <button onClick={invite} title={t('invite')}><I.AddPerson size={13} /></button>
             <button onClick={() => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender(n => n + 1) }} title={t('languageHint')}>
               <span className="glyph lang-switch">{getLang() === 'zh' ? 'ENG' : '中'}</span>   {/* the language it switches to */}
             </button>
-            <button onClick={onLogout} title={t('logout')}><I.Close size={12} /></button>
+            <button onClick={onLogout} title={t('logout')}><I.LogOut size={13} /></button>
           </div>
         </aside>
 

@@ -984,3 +984,24 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .hero-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .source-foot .lang-switch { font-size: 10px; font-weight: bold; letter-spacing: .02em; }
+
+/* ---------- polish ---------- */
+/* the language button's ENG fits (the group's buttons don't cut their text short) */
+.source-foot button span { overflow: visible; text-overflow: clip; }
+.source-foot .lang-switch { font-size: 9.5px; letter-spacing: 0; width: auto; }
+/* the source list's icons all one size and colour */
+.sourcelist button svg { width: 15px; height: 15px; }
+/* the song list: a little more air, a clearer hover, the playing song in blue */
+.songlist td { height: 22px; font-size: 12px; }
+.songlist tbody tr:hover:not(.sel) { background: #e8eef7; }
+.songlist tbody tr:has(.c-now svg):not(.sel) td.c-name .name { color: #1a5bc4; font-weight: bold; }
+.songlist th { height: 21px; font-size: 11px; font-weight: normal; color: #333; }
+/* section headings: iTunes 11's: bigger, lighter, a hairline under */
+.section-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; padding: 14px 14px 7px; color: #222; border-bottom-color: #e2e2e2; }
+/* result rows: cover art with a soft shadow, a little taller */
+.result { padding-top: 6px; padding-bottom: 6px; }
+.result .art { border-radius: 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+
+.sourcelist .source-link { display: flex; align-items: center; gap: 6px; padding: 3px 12px 3px 20px; color: inherit; text-decoration: none; font-size: 12px; }
+.sourcelist .source-link svg { color: #55616d; width: 15px; height: 15px; }
+.sourcelist .source-link:hover { background: rgba(0, 0, 0, .05); }

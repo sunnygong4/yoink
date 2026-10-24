@@ -36,3 +36,7 @@ data/
 server/.venv/
 web/dist/
 *.egg-info/
+
+# the Windows app: its build output (Yoinker.exe goes to the server, not the repo)
+desktop/dist/
+desktop/release/

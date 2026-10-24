@@ -1,0 +1,25 @@
+{
+  "name": "yoinker-desktop",
+  "productName": "Yoinker",
+  "version": "1.0.0",
+  "description": "Yoinker for Windows: the whole site in its own window, and a floating iPod bubble",
+  "main": "main.js",
+  "author": "Sunny",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.sunnygong.yoinker",
+    "productName": "Yoinker",
+    "files": ["main.js", "preload.js", "bubble.html", "bubble.css", "bubble.js", "bubble-preload.js", "build/icon.png"],
+    "directories": { "output": "release", "buildResources": "build" },
+    "win": { "target": "portable", "icon": "build/icon.png" },
+    "portable": { "artifactName": "Yoinker.exe" }
+  }
+}
