@@ -29,7 +29,9 @@ export default function EditSong({ song, onClose, onSaved }: { song: Song; onClo
       <div className="modal window edit-song" role="dialog" aria-modal="true" aria-label={t('editSong')}>
         <div className="titlebar">
           <span className="lights">
-            <button className="light close" onClick={onClose} title={t('close')} aria-label={t('close')} />
+            {/* (a span, not a <button> titled "Close": some browser extensions put their own icon on those) */}
+            <span className="light close" role="button" tabIndex={0} aria-label={t('closeWindow')} onClick={onClose}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClose() } }} />
             <i className="light" /><i className="light" />
           </span>
           <h2>{t('editSong')}</h2>

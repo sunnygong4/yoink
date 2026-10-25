@@ -92,14 +92,14 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   background: radial-gradient(circle at 50% 35%, #f3f3f3, #b9b9b9);
 }
 .light.close { border-color: #b33b2f; background: radial-gradient(circle at 50% 35%, #ffb2a6, #f25b4e 55%, #c63a2d); }
-button.light.close { cursor: pointer; }
-button.light.close:active { background: #a92a1f; }
+.light.close[role=button] { cursor: pointer; }
+.light.close[role=button]:active { background: #a92a1f; }
 /* the mac's ✕ on hover, drawn (not a font character: it sits in the middle whatever the font) */
-button.light.close:hover::before, button.light.close:hover::after {
+.light.close[role=button]:hover::before, .light.close[role=button]:hover::after {
   content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 1.4px; margin: -0.7px 0 0 -3px;
   background: #6d1710; border-radius: 1px; transform: rotate(45deg);
 }
-button.light.close:hover::after { transform: rotate(-45deg); }
+.light.close[role=button]:hover::after { transform: rotate(-45deg); }
 
 /* ---------- login ---------- */
 .login { width: 300px; margin: 14vh auto 0; }
