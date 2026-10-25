@@ -258,8 +258,9 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     ms.setActionHandler('previoustrack', prev)
     ms.setActionHandler('nexttrack', next)
     ms.setActionHandler('seekto', d => { if (d.seekTime != null) seek(d.seekTime) })
-    ms.setActionHandler('seekbackward', d => seek(Math.max(0, (audio.current?.currentTime ?? 0) - (d.seekOffset || 10))))
-    ms.setActionHandler('seekforward', d => seek((audio.current?.currentTime ?? 0) + (d.seekOffset || 10)))
+    // no ±10 s: with these set, the iPhone lock screen shows them in place of previous / next song
+    ms.setActionHandler('seekbackward', null)
+    ms.setActionHandler('seekforward', null)
   }, [song, prev, next, seek])
 
   // the lock screen's progress bar and play / pause button

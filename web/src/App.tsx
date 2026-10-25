@@ -146,9 +146,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   if (page.kind === 'audiotest') return <AudioTest library={library} onDone={() => go({ kind: 'iphone' })} />
   if (page.kind === 'iphone') {
+    // (a <div> with the Player first, like the full site's: switching between the two keeps the same audio element
+    // playing instead of starting the song again)
     return (
-      <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)}
-        pod={{ user, library, phone, preview, listen, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) }, audioTest: () => go({ kind: 'audiotest' }) }} />
+      <div className="pod-host">
+        <Player q={q} byId={byId} onSong={onSong} open={open} saved={saved} online={online} rerender={() => rerender(n => n + 1)}
+          pod={{ user, library, phone, preview, listen, onLogout, exit: () => { preferPod(false); go({ kind: 'library' }) }, audioTest: () => go({ kind: 'audiotest' }) }} />
+      </div>
     )
   }
   return (

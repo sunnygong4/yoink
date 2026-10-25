@@ -1055,3 +1055,6 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .migrate .mig-failed { max-height: 22vh; overflow: auto; padding-left: 18px; }
 .migrate .mig-check { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .migrate .mig-check input { margin: 0; }
+
+/* iPod mode's wrapper: no box of its own */
+.pod-host { display: contents; }
