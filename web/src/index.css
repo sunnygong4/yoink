@@ -84,14 +84,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   background: linear-gradient(#ebebeb, #d5d5d5); border-bottom: 1px solid #a5a5a5;
 }
 .titlebar h2 { font-size: 13px; font-weight: normal; color: #333; text-shadow: 0 1px 0 rgba(255, 255, 255, .7); }
-.lights { position: absolute; left: 8px; display: flex; gap: 7px; }
+.lights { position: absolute; left: 8px; top: 0; bottom: 0; display: flex; align-items: center; gap: 7px; }
 .light {
-  width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 1px solid #8f8f8f; box-shadow: inset 0 1px 1px rgba(255, 255, 255, .6);
+  /* (every size spelled out: a button's own defaults, or the page's, never move or grow it) */
+  flex: none; box-sizing: border-box; width: 12px; height: 12px; min-width: 0; min-height: 0; margin: 0; padding: 0; line-height: 0;
+  position: relative; appearance: none; text-shadow: none; border-radius: 50%; border: 1px solid #8f8f8f; box-shadow: inset 0 1px 1px rgba(255, 255, 255, .6);
   background: radial-gradient(circle at 50% 35%, #f3f3f3, #b9b9b9);
 }
 .light.close { border-color: #b33b2f; background: radial-gradient(circle at 50% 35%, #ffb2a6, #f25b4e 55%, #c63a2d); }
 button.light.close { cursor: pointer; }
 button.light.close:active { background: #a92a1f; }
+/* the mac's ✕ on hover, drawn (not a font character: it sits in the middle whatever the font) */
+button.light.close:hover::before, button.light.close:hover::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 1.4px; margin: -0.7px 0 0 -3px;
+  background: #6d1710; border-radius: 1px; transform: rotate(45deg);
+}
+button.light.close:hover::after { transform: rotate(-45deg); }
 
 /* ---------- login ---------- */
 .login { width: 300px; margin: 14vh auto 0; }
