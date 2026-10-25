@@ -65,7 +65,7 @@ export function useQueue() {
     setQ(s => s.ids.length
       ? { ...s, ids: [...s.ids.slice(0, s.pos + 1), id, ...s.ids.slice(s.pos + 1)] }
       : { ...s, ids: [id], pos: 0 })
-    setAutoplay(true); setStarts(x => x + 1)
+    setAutoplay(true)   // (no "play this": queueing a song leaves the one playing alone)
   }, [])
 
   /** Straight to this song: it goes right after the current one, and plays. */
@@ -78,7 +78,7 @@ export function useQueue() {
 
   const enqueue = useCallback((id: string) => {
     setQ(s => s.ids.length ? { ...s, ids: [...s.ids, id] } : { ...s, ids: [id], pos: 0 })
-    setAutoplay(true); setStarts(x => x + 1)
+    setAutoplay(true)
   }, [])
 
   const jump = useCallback((pos: number) => { setAutoplay(true); setStarts(x => x + 1); setQ(s => ({ ...s, pos })) }, [])

@@ -188,13 +188,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
             {ipod.status?.paired && <em>{ipod.status.songs.length}</em>}
           </button>
           {!(window as { yoinkerDesktop?: unknown }).yoinkerDesktop && (   // the Windows app: offered, except inside it
-            <a className="source-link" href="/download/Yoinker.exe" download title={t('desktopHint')}>
+            <a className="source-link" href="/download/Yoinker-win.zip" download title={t('desktopHint')}>
               <I.Download size={15} /> <span>{t('desktopApp')}</span>
             </a>
           )}
           {canSave && (
             <button className={page.kind === 'phone' ? 'on' : ''} onClick={() => go({ kind: 'phone' })}>
-              <PhonePicture small /> <span>{t('thisDevice')}</span> <em>{saved.size || ''}</em>
+              <PhonePicture small /> <span>{t('thisDevice')}</span> <em>{saved.size}</em>
             </button>
           )}
           {/* the rest, as one row of buttons at the bottom (like iTunes' + / shuffle / repeat under its list) */}
