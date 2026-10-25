@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from './api'
+import { api, type MigrateJob, type MigrateSong } from './api'
 import { t } from './i18n'
 
 type Item = {
@@ -23,7 +23,7 @@ function guess(name: string): { artist: string; title: string } {
 
 /** The Import window: add songs from your own files or from a YouTube / Bilibili link, naming them yourself. */
 export default function Import({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<'file' | 'link'>('file')
+  const [tab, setTab] = useState<'file' | 'link' | 'apps'>('file')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -44,8 +44,9 @@ export default function Import({ onClose }: { onClose: () => void }) {
         <nav className="seg">
           <button className={tab === 'file' ? 'on' : ''} onClick={() => setTab('file')}>{t('fromFile')}</button>
           <button className={tab === 'link' ? 'on' : ''} onClick={() => setTab('link')}>{t('fromLink')}</button>
+          <button className={tab === 'apps' ? 'on' : ''} onClick={() => setTab('apps')}>{t('fromApps')}</button>
         </nav>
-        {tab === 'file' ? <FileImport /> : <LinkImport />}
+        {tab === 'file' ? <FileImport /> : tab === 'link' ? <LinkImport /> : <AppImport />}
       </div>
     </div>
   )
@@ -165,5 +166,116 @@ function LinkImport() {
       <button type="submit" disabled={busy || !url.trim()}>{busy ? t('adding') : t('add')}</button>
       {added.map((a, i) => <p key={i} className="good small">{t('addedSong', { title: a })}</p>)}
     </form>
+  )
+}
+
+/** Moving in from Spotify / Apple Music: their data export read here, the songs picked, then added on the server. */
+function AppImport() {
+  const [songs, setSongs] = useState<MigrateSong[] | null>(null)
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [history, setHistory] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [job, setJob] = useState<MigrateJob | null>(null)
+
+  // an import already running (started before this window was closed): its progress, until it's finished
+  useEffect(() => {
+    let stop = false
+    const poll = async () => {
+      const j = await api.migrateStatus().catch(() => null)
+      if (stop) return
+      setJob(j)
+      if (j && !j.finished) setTimeout(poll, 1500)
+    }
+    poll()
+    return () => { stop = true }
+  }, [job?.total])
+
+  async function read(files: FileList | null) {
+    if (!files?.length) return
+    setBusy(true); setError('')
+    try {
+      const r = await api.migrateParse([...files])
+      setSongs(r.songs)
+      // ticked to begin with: saved songs and playlists (not songs only in the play history), not already in the library
+      setPicked(new Set(r.songs.flatMap((s, i) => (!s.have && s.lists.length ? [i] : []))))
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setBusy(false)
+  }
+
+  async function add() {
+    if (!songs) return
+    setBusy(true); setError('')
+    try {
+      setJob(await api.migrateAdd(songs.filter((_, i) => picked.has(i))))
+      setSongs(null)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+    setBusy(false)
+  }
+
+  const shown = songs?.map((s, i) => ({ s, i })).filter(({ s }) => history || s.lists.length) ?? []
+  const toggle = (i: number) => setPicked(p => { const n = new Set(p); n.has(i) ? n.delete(i) : n.add(i); return n })
+  const listName = (l: string) => (l === 'library' ? t('migListLibrary') : l)
+  const running = job && !job.finished
+
+  return (
+    <div className="import migrate">
+      {!songs && !running && <>
+        <p>{t('migIntro')}</p>
+        <div className="mig-how">
+          <div><b>{t('migSpotify')}</b><p className="muted small">{t('migSpotifySteps')}</p></div>
+          <div><b>{t('migApple')}</b><p className="muted small">{t('migAppleSteps')}</p></div>
+        </div>
+        <p className="muted small">{t('migOther')}</p>
+        <div className="toolbar">
+          <label className="filepick">
+            {busy ? t('migReading') : t('migChoose')}
+            <input type="file" multiple accept=".zip,.json,.csv,.xml,.txt,.tsv" disabled={busy}
+              onChange={e => { read(e.target.files); e.target.value = '' }} />
+          </label>
+        </div>
+      </>}
+      {error && <p className="error">{error}</p>}
+      {songs && <>
+        <p>{t('migFound', { n: songs.length, have: songs.filter(s => s.have).length })}</p>
+        <div className="toolbar">
+          <button className="link" onClick={() => setPicked(new Set(shown.filter(x => !x.s.have).map(x => x.i)))}>{t('migAll')}</button>
+          <button className="link" onClick={() => setPicked(new Set())}>{t('migNone')}</button>
+          {songs.some(s => !s.lists.length) && (
+            <label className="small mig-check"><input type="checkbox" checked={history} onChange={e => setHistory(e.target.checked)} /> {t('migShowHistory')}</label>
+          )}
+        </div>
+        <div className="mig-list">
+          {shown.map(({ s, i }) => (
+            <label key={i} className={'mig-row' + (s.have ? ' have' : '')}>
+              <input type="checkbox" checked={picked.has(i)} disabled={s.have} onChange={() => toggle(i)} />
+              <span className="mig-title">{s.title}</span>
+              <span className="muted">{s.artist}</span>
+              <span className="muted small mig-from">
+                {s.have ? t('migHave') : s.lists.length ? s.lists.map(listName).join(', ') : t('migHistoryOnly', { n: s.plays })}
+              </span>
+            </label>
+          ))}
+        </div>
+        <button className="blue" onClick={add} disabled={busy || !picked.size}>{t('migAdd', { n: picked.size })}</button>
+      </>}
+      {job && !songs && <div className="mig-job">
+        {running
+          ? <>
+            <p>{t('migAdding', { done: job.done, total: job.total, current: job.current || '' })}</p>
+            <progress max={job.total} value={job.done} />
+            <p className="muted small">{t('migBackground')}</p>
+          </>
+          : <p className="good">{t('migDone', { added: job.added, failed: job.failed.length })}</p>}
+        {job.finished && job.failed.length > 0 && <>
+          <p className="muted small">{t('migNotFound')}</p>
+          <ul className="mig-failed small">{job.failed.map((f, i) => <li key={i}>{f}</li>)}</ul>
+        </>}
+      </div>}
+    </div>
   )
 }

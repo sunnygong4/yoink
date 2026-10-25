@@ -1040,3 +1040,18 @@ html.pod-page body { -webkit-user-select: none; user-select: none; -webkit-touch
 .pod-tour .pt-skip { margin-right: auto; background: none; border: none; color: #9aa6b8; padding: 0; }
 .pod-tour button { text-shadow: none; box-shadow: none; }
 .pod-tour .pt-skip { background: none !important; border: none !important; box-shadow: none !important; height: auto; }
+
+/* Import > from Spotify / Apple Music */
+.migrate .mig-how { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.migrate .mig-how p { margin-top: 3px; line-height: 1.4; }
+@media (max-width: 600px) { .migrate .mig-how { grid-template-columns: 1fr; } }
+.migrate .mig-list { max-height: 46vh; overflow: auto; border: 1px solid var(--line, #c8c8c8); border-radius: 4px; }
+.migrate .mig-row { display: grid; grid-template-columns: 20px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center;
+  padding: 3px 8px; font-size: 12px; cursor: pointer; }
+.migrate .mig-row:nth-child(even) { background: rgba(0, 0, 0, .035); }
+.migrate .mig-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.migrate .mig-row.have { opacity: .55; cursor: default; }
+.migrate progress { width: 100%; }
+.migrate .mig-failed { max-height: 22vh; overflow: auto; padding-left: 18px; }
+.migrate .mig-check { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+.migrate .mig-check input { margin: 0; }

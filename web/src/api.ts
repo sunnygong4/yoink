@@ -23,6 +23,10 @@ export type Song = {
   source_title?: string | null   // the video's own title
 }
 
+// a song in someone's Spotify / Apple Music export: lists = its playlists ("library": saved / liked), plays = times played
+export type MigrateSong = { title: string; artist: string; album: string; duration?: number; plays: number; lists: string[]; have: boolean }
+export type MigrateJob = { total: number; done: number; added: number; failed: string[]; current: string | null; finished: boolean }
+
 // a real song from the catalog (iTunes): one per song per artist
 export type CatalogSong = {
   key: string
@@ -215,6 +219,21 @@ export const api = {
   // q: the quality to save / download at (high is the file as it is)
   audioUrl: (id: string, q?: string) => `/api/songs/${id}/audio${q && q !== 'high' ? `?q=${q}` : ''}`,
   downloadUrl: (id: string, q?: string) => `/api/songs/${id}/download${q && q !== 'high' ? `?q=${q}` : ''}`,
+  // moving in from Spotify / Apple Music: their export read into songs, then the picked ones added in the background
+  migrateParse: async (files: File[]) => {
+    const form = new FormData()
+    files.forEach(f => form.append('files', f))
+    const r = await fetch('/api/migrate/parse', { method: 'POST', body: form, headers: { 'x-lang': getLang() } })
+    if (!r.ok) {
+      let msg = r.statusText
+      try { msg = (await r.json()).detail || msg } catch { /* not json */ }
+      throw new ApiError(r.status, msg)
+    }
+    return (await r.json()) as { songs: MigrateSong[] }
+  },
+  migrateAdd: (songs: MigrateSong[]) =>
+    call<MigrateJob>('/api/migrate/add', { songs: songs.map(({ title, artist, album, duration }) => ({ title, artist, album, duration })) }),
+  migrateStatus: () => call<MigrateJob | null>('/api/migrate'),
   importLink: (url: string, info: { title: string; artist: string; album: string }) =>
     call<Song>('/api/songs/link', { url, ...info }),
   // XHR rather than fetch: it reports upload progress

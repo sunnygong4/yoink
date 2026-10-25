@@ -25,6 +25,7 @@ from db import DATA
 import search as se
 import social
 import groups
+import migrate
 
 app = FastAPI(title="Yoinker")
 
@@ -741,6 +742,41 @@ def _import_message(code: str) -> str:
                         "this should start working again soon). Try a YouTube link for now",
                         "B站最近改了网站，下载工具暂时进不去（服务器每天会自动更新它，修好后就能用）。先换个 YouTube 链接吧"),
     }[code]
+
+
+@app.post("/api/migrate/parse")
+async def migrate_parse(files: list[UploadFile] = File(...), user=Depends(auth.current_user)):
+    """Moving in: a Spotify / Apple Music export (or a playlist file), read into songs to pick from. Nothing added yet."""
+    got = [(f.filename or "file", await f.read()) for f in files]
+    try:
+        r = await asyncio.to_thread(migrate.parse, got, user)
+    except Exception as e:
+        raise HTTPException(400, i18n.tr(f"Couldn't read that file: {e}", f"读不了这个文件：{e}"))
+    if not r["songs"]:
+        raise HTTPException(400, i18n.tr("No songs found in that file", "这个文件里没找到歌"))
+    return r
+
+
+class MigrateSong(BaseModel):
+    title: str
+    artist: str
+    album: str | None = None
+    duration: int | None = None
+
+
+class MigrateAdd(BaseModel):
+    songs: list[MigrateSong]
+
+
+@app.post("/api/migrate/add")
+def migrate_add(body: MigrateAdd, user=Depends(auth.current_user)):
+    """The picked songs into the library, one by one in the background (progress: GET /api/migrate)."""
+    return migrate.start([s.model_dump() for s in body.songs[:5000]], user)
+
+
+@app.get("/api/migrate")
+def migrate_status(user=Depends(auth.current_user)):
+    return migrate.status(user)
 
 
 @app.post("/api/songs/upload")
