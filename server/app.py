@@ -26,6 +26,7 @@ import search as se
 import social
 import groups
 import migrate
+import playlists
 
 app = FastAPI(title="Yoinker")
 
@@ -552,6 +553,64 @@ class GroupControl(BaseModel):
     index: int | None = None
     pos: float | None = None
     from_index: int | None = None
+
+
+# ---------- playlists: each person's own ----------
+
+class PlaylistName(BaseModel):
+    name: str
+
+
+class PlaylistSongs(BaseModel):
+    ids: list[str]
+
+
+class PlaylistMove(BaseModel):
+    to: int
+
+
+@app.get("/api/playlists")
+def my_playlists(user=Depends(auth.current_user)):
+    return playlists.mine(user)
+
+
+@app.post("/api/playlists")
+def new_playlist(body: PlaylistName, user=Depends(auth.current_user)):
+    return playlists.create(user, body.name)
+
+
+@app.get("/api/playlists/{pid}")
+def playlist_page(pid: int, user=Depends(auth.current_user)):
+    return playlists.songs(user, pid)
+
+
+@app.put("/api/playlists/{pid}")
+def rename_playlist(pid: int, body: PlaylistName, user=Depends(auth.current_user)):
+    playlists.rename(user, pid, body.name)
+    return {"ok": True}
+
+
+@app.delete("/api/playlists/{pid}")
+def delete_playlist(pid: int, user=Depends(auth.current_user)):
+    playlists.delete(user, pid)
+    return {"ok": True}
+
+
+@app.post("/api/playlists/{pid}/songs")
+def add_playlist_songs(pid: int, body: PlaylistSongs, user=Depends(auth.current_user)):
+    return playlists.add(user, pid, body.ids[:2000])
+
+
+@app.delete("/api/playlists/{pid}/songs/{row_id}")
+def remove_playlist_song(pid: int, row_id: int, user=Depends(auth.current_user)):
+    playlists.remove(user, pid, row_id)
+    return {"ok": True}
+
+
+@app.put("/api/playlists/{pid}/songs/{row_id}")
+def move_playlist_song(pid: int, row_id: int, body: PlaylistMove, user=Depends(auth.current_user)):
+    playlists.move(user, pid, row_id, body.to)
+    return {"ok": True}
 
 
 @app.get("/api/groups")

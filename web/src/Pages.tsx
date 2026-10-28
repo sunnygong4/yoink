@@ -3,7 +3,7 @@ import { api, fmtTime, type Album, type Artist, type ArtistSongs, type Lang, typ
 import { t } from './i18n'
 import * as I from './icons'
 import { useCoverPalette } from './coverColor'
-import { type Actions, CatalogRow, SongStatus, SourcePicker, LocalRow } from './Rows'
+import { type Actions, CatalogRow, QueueButton, SongStatus, SourcePicker, LocalRow } from './Rows'
 import { flat, leadArtist } from './text'
 
 // Pages have their own links: / (library), /find, /artist/<slug>, /album/<artist slug>/<album slug>.
@@ -16,6 +16,7 @@ export type Page =
   | { kind: 'friends' }
   | { kind: 'groups' }
   | { kind: 'group'; id: number }
+  | { kind: 'playlist'; id: number }
   | { kind: 'search'; q?: string }   // q: run this search when the page opens
   | { kind: 'history' }
   | { kind: 'device' }
@@ -39,6 +40,7 @@ export function urlFor(p: Page): string {
     case 'friends': return '/friends'
     case 'groups': return '/groups'
     case 'group': return `/groups/${p.id}`
+    case 'playlist': return `/playlists/${p.id}`
     case 'search': return p.q ? `/find?${new URLSearchParams({ q: p.q })}` : '/find'
     case 'history': return '/history'
     case 'device': return '/ipod'
@@ -68,6 +70,7 @@ export function pageFromUrl(): Page {
   if (kind === 'friends') return { kind: 'friends' }
   if (kind === 'groups' && a && /^\d+$/.test(a)) return { kind: 'group', id: Number(a) }
   if (kind === 'groups') return { kind: 'groups' }
+  if (kind === 'playlists' && a && /^\d+$/.test(a)) return { kind: 'playlist', id: Number(a) }
   if (kind === 'find') return { kind: 'search', q: new URLSearchParams(location.search).get('q') || undefined }
   if (kind === 'history') return { kind: 'history' }
   if (kind === 'ipod') return { kind: 'device' }
@@ -273,7 +276,8 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
           <div className="results">
             {local.map((s, i) => (
               <LocalRow key={s.id} song={s} inLibrary={!s.radio} odd={i % 2 === 1} currentId={currentId}
-                onPlay={() => { local.forEach(onSong); actions.play(local.map(x => x.id), i) }} onAdded={onSong} />
+                onPlay={() => { local.forEach(onSong); actions.play(local.map(x => x.id), i) }} onAdded={onSong}
+                onQueue={how => { onSong(s); (how === 'next' ? actions.playNext : actions.enqueue)(s.id) }} />
             ))}
           </div>
         </section>
@@ -391,6 +395,7 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, ...actions 
                     onClick={() => (ok ? playFrom(song!.id) : listen(r))} title={ok || r.instant ? t('playHint') : t('previewHint')}>
                     {busy === `p${r.key}` ? '…' : <><I.Play size={9} /> {t('play')}</>}
                   </button>
+                  <QueueButton cls="ia-link" run={how => (ok ? (how === 'next' ? actions.playNext : actions.enqueue)(song!.id) : actions.preview(r, how))} />
                   {song ? <span className="ia-have" title={t('inLibraryHint')}>✓</span>
                     : <button className="ia-link" onClick={() => quick(r)} disabled={busy === r.key} title={t('addToLibrary')}>
                       {busy === r.key ? '…' : <><I.Plus size={9} /> {t('addToLibrary')}</>}

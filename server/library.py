@@ -185,7 +185,10 @@ def clean_unowned():
     holds stay (it uses the same files)."""
     now = time.time()
     c = conn()
-    kept = {r[0] for r in c.execute("select distinct song_id from user_songs")} |         {r[0] for r in c.execute("select distinct song_id from group_songs")}
+    kept = {r[0] for r in c.execute("select distinct song_id from user_songs")}
+    kept |= {r[0] for r in c.execute("select distinct song_id from group_songs")}
+    if c.execute("select 1 from sqlite_master where name = 'playlist_songs'").fetchone():
+        kept |= {r[0] for r in c.execute("select distinct song_id from playlist_songs")}
     for d in store.all():
         status = d.get("music_status")
         if not status or d.get("music_radio") or status in ("queued", "working"):

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, fmtTime, type CatalogResults, type CatalogSong, type Song, type Source, type Upload, type User } from './api'
+import { api, fmtTime, type CatalogResults, type CatalogSong, type PlaylistSummary, type Song, type Source, type Upload, type User } from './api'
 import { getLang, setLang, t } from './i18n'
 import * as I from './icons'
 import CoverFlow, { type FlowAlbum } from './CoverFlow'
@@ -16,7 +16,8 @@ import Player from './Player'
 import { useIPod } from './ipod'
 import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
-import { type Actions, CatalogRow, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
+import { AddToPlaylist, freshName, PlaylistPage, SONG_DRAG } from './Playlists'
+import { type Actions, CatalogRow, type How, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
 import EditSong from './EditSong'
 import { getQuality } from './quality'
 import { flat, leadArtist, mainArtist } from './text'
@@ -62,6 +63,25 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [together, setTogether] = useState<Together>(null)   // the 听友群 this is listening with
   // friend requests waiting (the sidebar's badge)
   const [requests, setRequests] = useState(0)
+  // this person's playlists (the sidebar lists them; library rows add to them)
+  const [lists, setLists] = useState<PlaylistSummary[]>([])
+  const loadLists = useCallback(() => { api.playlists().then(setLists).catch(() => {}) }, [])
+  useEffect(() => { loadLists() }, [loadLists])
+  const [dropOn, setDropOn] = useState<number | 'new' | null>(null)   // a playlist being dragged over
+  async function newPlaylist(ids: string[] = []) {
+    const p = await api.createPlaylist(freshName(lists))
+    if (ids.length) await api.addToPlaylist(p.id, ids)
+    loadLists()
+    go({ kind: 'playlist', id: p.id })
+  }
+  const dragged = (e: React.DragEvent): string[] | null => {
+    try { return JSON.parse(e.dataTransfer.getData(SONG_DRAG) || 'null') } catch { return null }
+  }
+  const dropZone = (key: number | 'new', onIds: (ids: string[]) => void) => ({
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes(SONG_DRAG)) { e.preventDefault(); setDropOn(key) } },
+    onDragLeave: () => setDropOn(d => (d === key ? null : d)),
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDropOn(null); const ids = dragged(e); if (ids?.length) onIds(ids) },
+  })
   const loadFriends = useCallback(() => { api.friends().then(f => setRequests(f.incoming.length)).catch(() => {}) }, [])
   useEffect(() => { loadFriends(); const timer = setInterval(loadFriends, 60000); return () => clearInterval(timer) }, [loadFriends])
 
@@ -105,16 +125,16 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
 
   // ▶ on a song that isn't in the library: fetch it just to listen, and play it right away
-  const preview = useCallback(async (song: CatalogSong) => {
+  const preview = useCallback(async (song: CatalogSong, how: How = 'now') => {
     const s = await api.preview(song)
     onSong(s)
-    q.playNow(s.id)
+    ;(how === 'next' ? q.playNext : how === 'end' ? q.enqueue : q.playNow)(s.id)
   }, [onSong, q])
   // ▶ on a YouTube find: the same, for an upload
-  const listen = useCallback(async (r: Source) => {
+  const listen = useCallback(async (r: Source, how: How = 'now') => {
     const s = await api.add(r, uploadSong(r), true)
     onSong(s)
-    q.playNow(s.id)
+    ;(how === 'next' ? q.playNext : how === 'end' ? q.enqueue : q.playNow)(s.id)
   }, [onSong, q])
   const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview, listen }
   const common = { ...actions, byId, library, currentId: q.current, open }
@@ -171,6 +191,21 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <button className={page.kind === 'library' && page.view === 'artists' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'artists' })}>
             <I.Mic size={15} /> <span>{t('viewArtists')}</span>
           </button>
+          <h4 className="pl-heading">{t('playlistsHeading')}
+            <button className="flat" onClick={() => newPlaylist()} title={t('newPlaylist')}><I.Plus size={11} /></button>
+          </h4>
+          {lists.map(l => (
+            <button key={l.id} className={(page.kind === 'playlist' && page.id === l.id ? 'on' : '') + (dropOn === l.id ? ' drop' : '')}
+              onClick={() => go({ kind: 'playlist', id: l.id })}
+              {...dropZone(l.id, ids => api.addToPlaylist(l.id, ids).then(loadLists))}>
+              <I.List size={15} /> <span>{l.name}</span> <em>{l.songs || ''}</em>
+            </button>
+          ))}
+          {!lists.length && (
+            <button className={'muted-row' + (dropOn === 'new' ? ' drop' : '')} onClick={() => newPlaylist()} {...dropZone('new', ids => newPlaylist(ids))}>
+              <I.Plus size={15} /> <span>{t('newPlaylist')}</span>
+            </button>
+          )}
           <h4>{t('friendsHeading')}</h4>
           <button data-tour="friends" className={page.kind === 'friends' ? 'on' : ''} onClick={() => go({ kind: 'friends' })}>
             <I.People size={15} /> <span>{t('friendsTitle')}</span> {requests > 0 && <em className="alert">{requests}</em>}
@@ -236,11 +271,13 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
           {page.kind === 'user' && <ProfilePage key={page.name} name={page.name} me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'groups' && <GroupsPage open={open} />}
+          {page.kind === 'playlist' && <PlaylistPage key={page.id} id={page.id} currentId={q.current} open={open} play={q.play}
+            playNext={q.playNext} enqueue={q.enqueue} onSong={onSong} onChanged={loadLists} onDeleted={() => go({ kind: 'library' })} />}
           {page.kind === 'group' && <GroupPage key={page.id} id={page.id} me={user.name} library={library} open={open} onSong={onSong}
             together={together} setTogether={setTogether} />}
           {page.kind === 'friends' && <FriendsPage me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'admin' && (user.is_admin ? <AdminPage /> : <p className="pad hint">{t('notFound')}</p>)}
-          {page.kind === 'library' && <Library onSong={onSong} view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
+          {page.kind === 'library' && <Library lists={lists} onLists={loadLists} onSong={onSong} view={page.view ?? 'songs'} onView={v => go(v === 'songs' ? { kind: 'library' } : { kind: 'library', view: v })} songs={library} saved={saved} online={online} onImport={() => setImporting(true)} onRemove={id => { api.remove(id).then(refresh) }} {...common} />}
           {page.kind === 'search' && <Search key={page.q ?? ''} initial={page.q} byId={byId} currentId={q.current} open={open} onSong={onSong} {...actions} />}
           {page.kind === 'history' && <HistoryPage {...common} onSong={onSong} />}
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
@@ -321,7 +358,8 @@ function groupAlbums(songs: Song[]): Item[] {
 
 type View = 'songs' | 'albums' | 'artists'
 
-function Library({ view, onView, onSong, songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+function Library({ lists, onLists, view, onView, onSong, songs, saved, online, currentId, open, onImport, onRemove, play, playNext, enqueue }: Actions & {
+  lists: PlaylistSummary[]; onLists: () => void
   view: View; onView: (v: View) => void; onSong: (s: Song) => void
   songs: Song[]; saved: Set<string>; online: boolean
   currentId?: string; open: (p: Page) => void; onImport: () => void; onRemove: (id: string) => void
@@ -394,6 +432,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
     const ok = playable(s)
     return (
       <tr key={s.id} className={(s.id === selected ? 'sel' : '') + (ok ? '' : ' pending') + (inAlbum ? ' in-album' : '')}
+        draggable onDragStart={e => { e.dataTransfer.setData(SONG_DRAG, JSON.stringify([s.id])); e.dataTransfer.effectAllowed = 'copy' }}
         onClick={() => { setSelected(s.id); if (touch && ok) playFrom(s.id) }}
         onDoubleClick={() => ok && playFrom(s.id)}>
         <td className="c-now">{s.id === currentId && <I.Volume size={13} />}</td>
@@ -414,6 +453,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
           {ok && <>
             <button className="mini" onClick={e => { e.stopPropagation(); playNext(s.id) }} title={t('playNext')}><I.PlayNext size={13} /></button>
             <button className="mini" onClick={e => { e.stopPropagation(); enqueue(s.id) }} title={t('addToQueue')}><I.Plus size={13} /></button>
+            <AddToPlaylist ids={[s.id]} lists={lists} onChanged={onLists} />
             <a className="mini" href={api.downloadUrl(s.id, getQuality())} download title={t('download')} onClick={e => e.stopPropagation()}><I.Download size={13} /></a>
           </>}
           {s.status === 'ready' && <button className="mini" onClick={e => { e.stopPropagation(); setEditing(s) }} title={t('editSong')}>✎</button>}
@@ -429,6 +469,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
     const playing = g.songs.some(s => s.id === currentId)
     return [
       <tr key={g.key} className={'album-row' + (selected === g.key ? ' sel' : '')}
+        draggable onDragStart={e => { e.dataTransfer.setData(SONG_DRAG, JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'copy' }}
         onClick={() => { setSelected(g.key); toggle(g.key) }} onDoubleClick={() => ids.length && play(ids)}>
         <td className="c-now">{playing ? <I.Volume size={13} /> : <span className="caret">{isOpen ? '▾' : '▸'}</span>}</td>
         <td className="c-name">
@@ -448,6 +489,7 @@ function Library({ view, onView, onSong, songs, saved, online, currentId, open, 
         <td className="c-by" />
         <td className="c-act">
           <button className="mini" disabled={!ids.length} onClick={e => { e.stopPropagation(); play(ids) }} title={t('play')}><I.Play size={11} /></button>
+          {ids.length > 0 && <AddToPlaylist ids={ids} lists={lists} onChanged={onLists} />}
         </td>
       </tr>,
       ...(isOpen ? g.songs.map(s => songRow(s, true)) : []),
@@ -609,7 +651,8 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
               <div className="results">
                 {res.local.map((l, i) => (
                   <LocalRow key={l.song.id} song={l.song} inLibrary={l.in_library} odd={i % 2 === 1} currentId={currentId}
-                    onPlay={() => { onSong(l.song); actions.play([l.song.id]) }} onAdded={onSong} />
+                    onPlay={() => { onSong(l.song); actions.play([l.song.id]) }} onAdded={onSong}
+                    onQueue={how => { onSong(l.song); (how === 'next' ? actions.playNext : actions.enqueue)(l.song.id) }} />
                 ))}
               </div>
             </section>
@@ -646,7 +689,7 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
                   <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')}
                     currentId={currentId} open={picker === r.key} onToggle={() => setPicker(picker === r.key ? null : r.key)}
                     onAdded={s => { setAdded(a => ({ ...a, [r.key]: s.id })); setPicker(null) }}
-                    play={actions.play} preview={actions.preview} openPage={open} />
+                    play={actions.play} playNext={actions.playNext} enqueue={actions.enqueue} preview={actions.preview} openPage={open} />
                 ))}
               </div>
             </section>
@@ -658,7 +701,7 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
               <div className="results">
                 {uploads.map((r, i) => (
                   <UploadRow key={r.id} r={r} odd={i % 2 === 1} lib={byId.get(upAdded[r.id] || r.song_id || '')} currentId={currentId}
-                    listen={actions.listen} play={actions.play} onAdded={s => setUpAdded(a => ({ ...a, [r.id]: s.id }))} />
+                    listen={actions.listen} play={actions.play} playNext={actions.playNext} enqueue={actions.enqueue} onAdded={s => setUpAdded(a => ({ ...a, [r.id]: s.id }))} />
                 ))}
               </div>
             ) : <p className="pad hint">{t('nothingOnYouTube')}</p>)
@@ -695,7 +738,7 @@ function ForYou({ byId, currentId, open, ...actions }: Actions & { byId: Map<str
               <CatalogRow key={r.key} song={r} odd={i % 2 === 1} lib={byId.get(added[r.key] || r.song_id || '')}
                 currentId={currentId} open={picker === r.key} onToggle={() => setPicker(picker === r.key ? null : r.key)}
                 onAdded={s => { setAdded(a => ({ ...a, [r.key]: s.id })); setPicker(null) }}
-                play={actions.play} preview={actions.preview} openPage={open} />
+                play={actions.play} playNext={actions.playNext} enqueue={actions.enqueue} preview={actions.preview} openPage={open} />
             ))}
           </div>}
     </section>

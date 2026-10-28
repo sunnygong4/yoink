@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, fmtTime, type CatalogSong, type Song, type Source, type Upload, type UploadSong } from './api'
 import { errorText, t } from './i18n'
 import * as I from './icons'
@@ -12,8 +12,74 @@ export type Actions = {
   play: (ids: string[], start?: number) => void
   playNext: (id: string) => void
   enqueue: (id: string) => void
-  preview: (s: CatalogSong) => Promise<void>   // ▶ on a song that isn't in the library: just listen
-  listen: (r: Source) => Promise<void>         // ▶ on an upload found on YouTube: just listen
+  // ▶ on a song that isn't in the library: just listen (how: now, next, or at the end of the queue)
+  preview: (s: CatalogSong, how?: How) => Promise<void>
+  listen: (r: Source, how?: How) => Promise<void>         // the same, for an upload found on YouTube
+}
+
+export type How = 'now' | 'next' | 'end'
+
+// ---------- the button beside ▶: play next (▾: or add to the end of the queue; the choice is remembered) ----------
+
+const QMODE = 'yoinker.queueMode'
+const readMode = (): 'next' | 'end' => { try { return localStorage.getItem(QMODE) === 'end' ? 'end' : 'next' } catch { return 'next' } }
+
+export function QueueButton({ run, cls = 'pill' }: { run: (how: 'next' | 'end') => Promise<unknown> | void; cls?: string }) {
+  const [mode, setMode] = useState(readMode)
+  const [menu, setMenu] = useState(false)
+  const [state, setState] = useState<'' | 'busy' | 'done'>('')
+  const box = useRef<HTMLSpanElement>(null)
+  // every such button shows the same choice
+  useEffect(() => {
+    const on = () => setMode(readMode())
+    window.addEventListener('yoinker-qmode', on)
+    return () => window.removeEventListener('yoinker-qmode', on)
+  }, [])
+  useEffect(() => {
+    if (!menu) return
+    const off = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false) }
+    document.addEventListener('mousedown', off)
+    return () => document.removeEventListener('mousedown', off)
+  }, [menu])
+
+  async function go(how: 'next' | 'end') {
+    setMenu(false)
+    setState('busy')
+    try {
+      await run(how)
+      setState('done')
+      setTimeout(() => setState(''), 1400)
+    } catch (e) {
+      setState('')
+      alert((e as Error).message)
+    }
+  }
+  function pick(how: 'next' | 'end') {
+    try { localStorage.setItem(QMODE, how) } catch { /* private mode */ }
+    window.dispatchEvent(new Event('yoinker-qmode'))
+    go(how)
+  }
+  const label = (how: 'next' | 'end') => (how === 'next' ? t('playNext') : t('addToQueue'))
+  const icon = (how: 'next' | 'end') => (how === 'next' ? <I.PlayNext size={11} /> : <I.Plus size={10} />)
+  return (
+    <span className="qbtn" ref={box} onDoubleClick={e => e.stopPropagation()}>
+      <button className={cls + ' q-main'} disabled={state === 'busy'} onClick={e => { e.stopPropagation(); go(mode) }} title={label(mode)}>
+        {state === 'done' ? '✓' : state === 'busy' ? '…' : icon(mode)} {label(mode)}
+      </button>
+      <button className={cls + ' q-more' + (menu ? ' pressed' : '')} onClick={e => { e.stopPropagation(); setMenu(!menu) }}
+        aria-label={t('queueMenu')} title={t('queueMenu')}>▾</button>
+      {menu && (
+        <span className="q-menu" role="menu">
+          {(['next', 'end'] as const).map(how => (
+            <button key={how} role="menuitemradio" aria-checked={how === mode} className={how === mode ? 'on' : ''}
+              onClick={e => { e.stopPropagation(); pick(how) }}>
+              <span className="q-tick">{how === mode ? '✓' : ''}</span>{icon(how)} {label(how)}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  )
 }
 
 /** What an upload is called once added: a YouTube Music track has real details; a plain video is named from
@@ -27,8 +93,9 @@ export function uploadSong(r: Source | Upload): UploadSong | undefined {
 }
 
 /** A song already on the server that the store catalog doesn't know: plays at once, + adds it. */
-export function LocalRow({ song, inLibrary, odd, currentId, onPlay, onAdded }: {
+export function LocalRow({ song, inLibrary, odd, currentId, onPlay, onQueue, onAdded }: {
   song: Song; inLibrary: boolean; odd: boolean; currentId?: string; onPlay: () => void; onAdded: (s: Song) => void
+  onQueue: (how: 'next' | 'end') => void
 }) {
   const [busy, setBusy] = useState(false)
   const [mine, setMine] = useState(inLibrary)
@@ -42,6 +109,7 @@ export function LocalRow({ song, inLibrary, odd, currentId, onPlay, onAdded }: {
           <span className="tag good">{t('onServer')}</span></span>
       </div>
       <button className="pill" onClick={onPlay} title={t('playHint')}><I.Play size={10} /> {t('play')}</button>
+      <QueueButton run={onQueue} />
       {mine
         ? <button className="pill" disabled title={t('inLibraryHint')}>✓ {t('inLibraryShort')}</button>
         : <button className="pill" disabled={busy} onClick={async () => {
@@ -54,9 +122,9 @@ export function LocalRow({ song, inLibrary, odd, currentId, onPlay, onAdded }: {
 }
 
 /** A YouTube Music song / YouTube video found for the search: ▶ to listen, + to add. */
-export function UploadRow({ r, odd, lib, currentId, listen, play, onAdded }: {
+export function UploadRow({ r, odd, lib, currentId, listen, play, playNext, enqueue, onAdded }: {
   r: Upload; odd: boolean; lib?: Song; currentId?: string; onAdded: (s: Song) => void
-} & Pick<Actions, 'listen' | 'play'>) {
+} & Pick<Actions, 'listen' | 'play' | 'playNext' | 'enqueue'>) {
   const [busy, setBusy] = useState<'play' | 'add' | null>(null)
   const [error, setError] = useState('')
   const ready = lib?.status === 'ready'
@@ -83,6 +151,7 @@ export function UploadRow({ r, odd, lib, currentId, listen, play, onAdded }: {
         onClick={() => ready ? play([lib!.id]) : run('play', () => listen(r))}>
         <I.Play size={10} /> {busy === 'play' ? '…' : t('play')}
       </button>
+      <QueueButton run={how => (ready ? (how === 'next' ? playNext : enqueue)(lib!.id) : listen(r, how))} />
       {lib && lib.status !== 'error' && !lib.radio
         ? <button className="pill" disabled title={t('inLibraryHint')}>✓ {t('inLibraryShort')}</button>
         : <button className="pill" disabled={busy === 'add'} onClick={() => run('add', async () => onAdded(await api.add(r, uploadSong(r))))}>
@@ -100,13 +169,13 @@ export function SongStatus({ song }: { song: Song }) {
   return <span className="status">{song.status === 'working' ? t('downloading', { p: song.progress || 0 }) : t('queued')}</span>
 }
 
-export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded, play, preview, openPage, compact }: {
+export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded, play, playNext, enqueue, preview, openPage, compact }: {
   song: CatalogSong; odd: boolean; lib?: Song; currentId?: string; open: boolean
   compact?: boolean   // on an album page: the cover and album are the page's, not repeated per track
   onToggle: () => void; onAdded: (s: Song) => void
-  preview: (s: CatalogSong) => Promise<void>      // ▶ without adding it to the library
+  preview: (s: CatalogSong, how?: How) => Promise<void>      // ▶ without adding it to the library
   openPage: (p: Page) => void
-} & Pick<Actions, 'play'>) {
+} & Pick<Actions, 'play' | 'playNext' | 'enqueue'>) {
   const [busy, setBusy] = useState<'play' | 'add' | null>(null)
   const [error, setError] = useState('')
   const ready = lib?.status === 'ready'
@@ -138,6 +207,7 @@ export function CatalogRow({ song, odd, lib, currentId, open, onToggle, onAdded,
           onClick={() => ready ? play([lib!.id]) : run('play', () => preview(song))}>
           <I.Play size={10} /> {busy === 'play' ? t('findingSource') : t('play')}
         </button>
+        <QueueButton run={how => (ready ? (how === 'next' ? playNext : enqueue)(lib!.id) : preview(song, how))} />
         {lib && lib.status !== 'error'
           ? <button className="pill" disabled title={t('inLibraryHint')}>✓ {t('inLibraryShort')}</button>
           : <button className="pill" disabled={busy === 'add'} onClick={() => run('add', async () => onAdded(await api.quick(song)))}>

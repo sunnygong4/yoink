@@ -27,6 +27,8 @@ export type Song = {
 export type MigrateSong = { title: string; artist: string; album: string; duration?: number; plays: number; lists: string[]; have: boolean }
 export type MigrateJob = { total: number; done: number; added: number; failed: string[]; current: string | null; finished: boolean }
 
+export type PlaylistSummary = { id: number; name: string; songs: number }
+
 // a real song from the catalog (iTunes): one per song per artist
 export type CatalogSong = {
   key: string
@@ -234,6 +236,15 @@ export const api = {
   migrateAdd: (songs: MigrateSong[]) =>
     call<MigrateJob>('/api/migrate/add', { songs: songs.map(({ title, artist, album, duration }) => ({ title, artist, album, duration })) }),
   migrateStatus: () => call<MigrateJob | null>('/api/migrate'),
+  // playlists: each person's own, of library songs
+  playlists: () => call<PlaylistSummary[]>('/api/playlists'),
+  createPlaylist: (name: string) => call<PlaylistSummary>('/api/playlists', { name }),
+  playlist: (id: number) => call<{ id: number; name: string; songs: (Song & { row_id: number })[] }>(`/api/playlists/${id}`),
+  renamePlaylist: (id: number, name: string) => call(`/api/playlists/${id}`, { name }, 'PUT'),
+  deletePlaylist: (id: number) => call(`/api/playlists/${id}`, undefined, 'DELETE'),
+  addToPlaylist: (id: number, ids: string[]) => call<{ added: number }>(`/api/playlists/${id}/songs`, { ids }),
+  removeFromPlaylist: (id: number, rowId: number) => call(`/api/playlists/${id}/songs/${rowId}`, undefined, 'DELETE'),
+  movePlaylistSong: (id: number, rowId: number, to: number) => call(`/api/playlists/${id}/songs/${rowId}`, { to }, 'PUT'),
   importLink: (url: string, info: { title: string; artist: string; album: string }) =>
     call<Song>('/api/songs/link', { url, ...info }),
   // XHR rather than fetch: it reports upload progress

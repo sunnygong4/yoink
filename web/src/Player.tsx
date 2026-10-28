@@ -268,6 +268,10 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
     if (!('mediaSession' in navigator)) return
     navigator.mediaSession.playbackState = song ? (playing ? 'playing' : 'paused') : 'none'
   }, [song, playing])
+  // the browser tab says what's on (▶ while it plays)
+  useEffect(() => {
+    document.title = song ? `${playing ? '▶ ' : ''}${song.title}${song.artist ? ` — ${song.artist}` : ''} · Yoinker` : 'Yoinker'
+  }, [song?.title, song?.artist, playing])
   const lastPos = useRef(0)
   useEffect(() => {
     if (!('mediaSession' in navigator) || !duration || !isFinite(duration)) return
