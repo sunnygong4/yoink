@@ -23,7 +23,7 @@ from db import DATA, conn
 _client = httpx.Client(timeout=10, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
 _cache: dict[tuple, tuple[float, object]] = {}
 _lock = threading.Lock()
-TTL = {"artist": 7 * 24 * 3600, "album": 30 * 24 * 3600, "songs": 7 * 24 * 3600}   # on disk too: a restart doesn't refetch everything
+TTL = {"artist": 7 * 24 * 3600, "album": 30 * 24 * 3600, "songs": 7 * 24 * 3600, "ne-albums": 24 * 3600}   # on disk too: a restart doesn't refetch everything
 CACHE_DIR = DATA / "cache" / "pages"
 AUDIODB = "https://www.theaudiodb.com/api/v1/json/123"
 
@@ -411,9 +411,15 @@ def save_media(name: str, kind: str, data: bytes, ext: str):
 
 def album(artist_name: str, title: str, lang: str, album_id: int | None = None) -> dict | None:
     """By the store's album id when the link has one (it's exact: the album's artist may be someone else than the
-    singer whose song led here), else by name."""
+    singer whose song led here), else by name. A negative id is a NetEase album (see netease_album)."""
     key = ("album", f"id:{album_id}", lang) if album_id else ("album", flat(artist_name), flat(title), lang)
-    a = _cached(key, lambda: (_album_by_id(album_id, lang) if album_id else None) or _album(artist_name, title, lang))
+
+    def make():
+        if album_id and album_id < 0:
+            return netease_album(-album_id)
+        return (_album_by_id(album_id, lang) if album_id else None) or _album(artist_name, title, lang) \
+            or _netease_by_name(artist_name, title)
+    a = _cached(key, make)
     if a is None:
         _cache_drop(key)   # not found may be a hiccup: ask again next time
     return a
@@ -524,6 +530,88 @@ def _album(artist_name: str, title: str, lang: str) -> dict | None:
         if tracks:
             break
     return _album_page(best, tracks, lang)
+
+
+# ---------- NetEase Cloud Music: the albums iTunes doesn't have ----------
+# Chinese film scores and the like (《我不是药神》电影原声音乐专辑) are often only there. Only its catalog is used:
+# names, covers, track lists. The audio still comes from YouTube / Bilibili, or from the listener's own files.
+# Its albums go by negative ids, so links and pages work like the store's (album_id < 0 = NetEase).
+
+_NE = "https://music.163.com"
+_NE_HEADERS = {"Referer": "https://music.163.com/"}
+
+
+def _ne_art(url: str | None, size: int = 600) -> str | None:
+    return f"{url.replace('http://', 'https://')}?param={size}y{size}" if url else None
+
+
+def _ne_year(ms) -> str:
+    return time.strftime("%Y", time.gmtime(ms / 1000)) if isinstance(ms, (int, float)) and ms > 0 else ""
+
+
+def netease_albums(q: str, limit: int = 6) -> list[dict]:
+    """Albums of this name on NetEase, shaped like catalog.albums'. Asked often, NetEase answers with unrelated
+    albums (its guard against scraping): the ones that are the search are kept for a day, so it's asked less."""
+    key = ("ne-albums", flat(q), limit)
+    hit = _cache_get(key)
+    if hit and time.time() - hit[0] < TTL["ne-albums"]:
+        return hit[1]
+    found = _netease_albums(q, limit)
+    if any(catalog.relevance(q, a["title"], a["artist"], None) == 1 for a in found):
+        _cached(key, lambda: found)
+    return found
+
+
+def _netease_albums(q: str, limit: int) -> list[dict]:
+    try:
+        r = _client.get(f"{_NE}/api/search/get", params={"s": q, "type": 10, "limit": limit},
+                        headers=_NE_HEADERS, timeout=10).json()
+    except (httpx.HTTPError, ValueError):
+        return []
+    out = []
+    for a in (r.get("result") or {}).get("albums") or []:
+        if a.get("id") and a.get("name"):
+            out.append({"title": a["name"], "artist": "、".join(x["name"] for x in a.get("artists") or [] if x.get("name"))
+                        or (a.get("artist") or {}).get("name") or "", "id": -a["id"], "year": _ne_year(a.get("publishTime")),
+                        "artwork": _ne_art(a.get("picUrl"), 400), "source": "netease"})
+    return out
+
+
+def netease_album(ne_id: int) -> dict | None:
+    r = {}
+    for attempt in range(3):   # NetEase now and then answers with nothing (or "verify first"): again usually works
+        try:
+            r = _client.get(f"{_NE}/api/v1/album/{ne_id}", headers=_NE_HEADERS, timeout=15).json()
+        except (httpx.HTTPError, ValueError):
+            r = {}
+        if r.get("songs"):
+            break
+        print(f"[pages] netease album {ne_id}: {str(r)[:120]}")
+        time.sleep(0.8)
+    al, songs = r.get("album") or {}, r.get("songs") or []
+    if not al.get("name") or not songs:
+        return None
+    artist = "、".join(x["name"] for x in al.get("artists") or [] if x.get("name")) or (al.get("artist") or {}).get("name") or ""
+    art, year = _ne_art(al.get("picUrl")), _ne_year(al.get("publishTime"))
+    tracks = []
+    for i, s in enumerate(songs, 1):
+        who = "、".join(x["name"] for x in s.get("ar") or [] if x.get("name")) or artist
+        tracks.append({"key": catalog.song_key(who, s["name"]), "title": catalog.clean_title(s["name"]), "artist": who,
+                       "album": al["name"], "duration": round((s.get("dt") or 0) / 1000) or None, "artwork": art,
+                       "year": year, "versions": 1, "album_id": -ne_id, "track": s.get("no") or i,
+                       "disc": int(s["cd"]) if str(s.get("cd") or "").isdigit() else 1})
+    return {"title": al["name"], "artist": artist, "id": -ne_id, "year": year, "artwork": art,
+            "genre": None, "copyright": al.get("company") or None, "description": (al.get("description") or "").strip() or None,
+            "tracks": tracks, "source": "netease"}
+
+
+def _netease_by_name(artist_name: str, title: str) -> dict | None:
+    """iTunes has no such album: NetEase's of that name (and artist, when it's given)."""
+    want, lead = flat(title), flat(catalog.lead_artist(artist_name or ""))
+    for a in netease_albums(f"{artist_name} {title}".strip(), 8) + netease_albums(title, 8):
+        if flat(a["title"]) == want and (not lead or lead in flat(a["artist"]) or flat(a["artist"]) in lead):
+            return netease_album(-a["id"])
+    return None
 
 
 def _album_page(best: dict, tracks: list[dict], lang: str) -> dict:

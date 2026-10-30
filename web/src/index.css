@@ -1117,3 +1117,15 @@ input.pl-name { padding: 0 4px; height: 32px; border: 1px solid #7aa7e8; border-
 /* a selected row's text is white: its buttons keep theirs */
 .songlist td a.mini { color: #333; text-decoration: none; }
 .q-menu { text-align: left; }
+
+/* NetEase albums: the tag on a search card, the note and file buttons on the album page */
+.cover-tile .tag.ne { align-self: flex-start; margin-top: 2px; color: #c20c0c; border-color: rgba(194, 12, 12, .45); }
+.ia-fill { display: inline-flex; align-items: center; gap: 4px; }
+.ia-source { font-size: 11px; opacity: .85; max-width: 620px; line-height: 1.45; }
+.ia-missed { opacity: .75; font-size: 11px; }
+.ia-link.filepick { position: relative; overflow: hidden; cursor: pointer; display: inline-flex; align-items: center; }
+.ia-link.filepick input, .ia-fill input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.ialbum .ia-buttons .ia-fill { position: relative; margin-left: 4px; font-size: 12px; background: rgba(255, 255, 255, .18); border: 1px solid var(--ia-fg2);
+  color: var(--ia-fg); text-shadow: none; border-radius: 11px; vertical-align: middle; }
+.on-light .ia-buttons .ia-fill { background: rgba(0, 0, 0, .06); }
+.ialbum .ia-link.filepick { height: auto; padding: 0 3px; border: none; background: none; text-shadow: none; color: inherit; }

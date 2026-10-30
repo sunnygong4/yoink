@@ -579,9 +579,15 @@ def import_file(upload, filename: str, info: dict, cover, user: dict) -> dict:
                 shutil.copyfileobj(cover, f)
             to_jpeg(tmp, art)
             tmp.unlink(missing_ok=True)
+        elif (url := info.get("artwork") or "") and re.match(r"https://([\w-]+\.)*(music\.126\.net|mzstatic\.com)/", url):
+            # the album's cover from the catalog page the file was added from (NetEase / Apple only)
+            tmp = d / "cover.download"
+            tmp.write_bytes(httpx.get(url, timeout=15, follow_redirects=True).content)
+            to_jpeg(tmp, art)
+            tmp.unlink(missing_ok=True)
         elif p["picture"]:
             to_jpeg(src, art)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, httpx.HTTPError):
         art.unlink(missing_ok=True)   # an unreadable picture shouldn't stop the song
     fields = {"source": "local", "file": src.name, "title": Path(filename).stem, "duration": p["duration"],
               "display_title": title, "display_artist": artist, "album": album,

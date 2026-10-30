@@ -235,6 +235,14 @@ def catalog_search(q: str, user=Depends(auth.current_user)):
     songs = mark(songs, user, docs)
     # songs on the server the store doesn't have (named by whoever added them): for everyone who searches
     local = lib.local_search(q, user, docs)
+    # albums the store doesn't have (Chinese film scores...): NetEase's, when their name is what was searched
+    have = {(pages.flat(a["title"]), pages.flat(cat.lead_artist(a["artist"]))) for a in albums}
+    more = [a for a in pages.netease_albums(q) if cat.relevance(q, a["title"], a["artist"], None) == 1
+            and (pages.flat(a["title"]), pages.flat(cat.lead_artist(a["artist"]))) not in have]
+    if more:
+        # first when none of the store's is really what was searched
+        good = [a for a in albums if cat.relevance(q, a["title"], a["artist"], None) == 1]
+        albums = good + more + [a for a in albums if a not in good]
     return {"songs": songs, "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs),
             "matched": matched + len(local), "local": local}
 
@@ -840,11 +848,11 @@ def migrate_status(user=Depends(auth.current_user)):
 
 @app.post("/api/songs/upload")
 def upload(file: UploadFile = File(...), title: str = Form(""), artist: str = Form(""), album: str = Form(""),
-           cover: UploadFile | None = File(None), user=Depends(auth.current_user)):
+           cover: UploadFile | None = File(None), artwork: str = Form(""), user=Depends(auth.current_user)):
     """Import: someone's own music file, with the song's details as they typed them (blank = the file's own tags)."""
     try:
-        return lib.import_file(file.file, file.filename or "upload", {"title": title, "artist": artist, "album": album},
-                               cover.file if cover and cover.filename else None, user)
+        return lib.import_file(file.file, file.filename or "upload", {"title": title, "artist": artist, "album": album,
+                               "artwork": artwork}, cover.file if cover and cover.filename else None, user)
     except lib.ImportRejected as e:
         raise HTTPException(400, _import_message(e.code))
 

@@ -283,7 +283,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {page.kind === 'device' && <DevicePage ipod={ipod} user={user} library={library} />}
           {page.kind === 'phone' && <DevicePage ipod={phone} user={user} library={library} phone />}
           {page.kind === 'artist' && <ArtistPage key={page.key} pageKey={page.key} onSong={onSong} {...common} />}
-          {page.kind === 'album' && <AlbumPage key={page.key + (page.id ?? '')} pageKey={page.key} albumId={page.id} {...common} />}
+          {page.kind === 'album' && <AlbumPage key={page.key + (page.id ?? '')} pageKey={page.key} albumId={page.id} onSong={onSong} {...common} />}
         </main>
       </div>
       <footer className="statusbar">
@@ -676,6 +676,7 @@ function Search({ initial, byId, currentId, open, onSong, ...actions }: Actions 
                     {a.artwork ? <img src={a.artwork} alt="" loading="lazy" /> : <span className="art" />}
                     <span className="name">{a.title}</span>
                     <span className="sub">{a.artist}{a.year && ` · ${a.year}`}</span>
+                    {(a.id ?? 0) < 0 && <span className="tag ne" title={t('neteaseHint')}>{t('netease')}</span>}
                   </button>
                 ))}
               </div>

@@ -317,13 +317,24 @@ export function ArtistPage({ pageKey, byId, library, currentId, open, onSong, ..
 }
 
 /** iTunes 11's album view: the page takes the cover's colour; the tracks are a plain numbered list beside it. */
-export function AlbumPage({ pageKey, albumId, byId, currentId, open, ...actions }: Common & { pageKey: string; albumId?: number }) {
+/** A file's name as a track's: "03 - 黄超 - 吕家小酌.mp3" -> "吕家小酌" (and its number, 3). */
+function fileTrack(name: string): { no: number | null; title: string } {
+  let stem = name.replace(/\.[^.]+$/, '').trim()
+  const m = stem.match(/^(?:(?:cd|disc)\s*\d+\s*[-_.]\s*)?(\d{1,3})(?:\s*[-_.、)]\s*|\s+)(.+)$/i)
+  const no = m ? Number(m[1]) : null
+  if (m) stem = m[2]
+  const parts = stem.split(/\s+[-–—]\s+/)
+  return { no, title: parts.length > 1 ? parts[parts.length - 1] : stem }
+}
+
+export function AlbumPage({ pageKey, albumId, byId, currentId, open, onSong, ...actions }: Common & { pageKey: string; albumId?: number; onSong: (s: Song) => void }) {
   const { data: al, error } = useLoad<Album>(() => api.album(pageKey, albumId), [pageKey, albumId])
   const [added, setAdded] = useState<Record<string, string>>({})
   const [picker, setPicker] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [more, setMore] = useState(false)
   const [note, setNote] = useState('')
+  const [filling, setFilling] = useState<{ done: number; total: number; missed: string[] } | null>(null)   // your own files going in
   const pal = useCoverPalette(al?.artwork)
 
   useEffect(() => { if (al?.slug) canonical({ kind: 'album', key: al.slug }) }, [al?.slug])
@@ -345,6 +356,33 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, ...actions 
     setBusy(`p${r.key}`)
     try { await actions.preview(r) } catch (e) { alert((e as Error).message) }
     setBusy(null)
+  }
+  // your own files for the tracks no upload was found for (a NetEase album: the score of a film...): each one named
+  // after its track, with the album's cover
+  async function importFor(r: Album['tracks'][number], file: File) {
+    const s = await api.upload(file, { title: r.title, artist: r.artist, album: al!.title, artwork: al!.artwork || undefined }, null, () => {})
+    onSong(s)
+    setAdded(x => ({ ...x, [r.key]: s.id }))
+  }
+  async function fillIn(files: FileList | null) {
+    if (!files?.length) return
+    const tracks = al!.tracks
+    const used = new Set<string>()
+    const plan: [Album['tracks'][number], File][] = []
+    const missed: string[] = []
+    for (const f of [...files]) {
+      const { no, title } = fileTrack(f.name)
+      const name = flat(title)
+      const r = tracks.find(x => !used.has(x.key) && name && (flat(x.title) === name))
+        ?? tracks.find(x => !used.has(x.key) && name.length > 1 && (flat(x.title).includes(name) || name.includes(flat(x.title))))
+        ?? (no ? tracks.find(x => !used.has(x.key) && x.track === no && (x.disc || 1) === 1) : undefined)
+      if (r) { used.add(r.key); plan.push([r, f]) } else missed.push(f.name)
+    }
+    setFilling({ done: 0, total: plan.length, missed })
+    for (const [r, f] of plan) {
+      try { await importFor(r, f) } catch (e) { missed.push(`${f.name}: ${(e as Error).message}`) }
+      setFilling(x => x && { ...x, done: x.done + 1, missed: [...missed] })
+    }
   }
   async function addAll() {
     try { const { queued } = await api.addAlbum(al!.slug, al!.id); setNote(t('albumAdding', { n: queued })) } catch (e) { alert((e as Error).message) }
@@ -370,7 +408,21 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, ...actions 
           {playable.length < al.tracks.length && (
             <button onClick={addAll}><I.Plus size={11} /> {t('addAlbum')}</button>
           )}
+          {playable.length < al.tracks.length && (
+            <label className="filepick ia-fill" title={t('fillInHint')}>
+              <I.Upload size={11} /> {t('fillIn')}
+              <input type="file" multiple accept="audio/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.ape,.wv,.aif,.aiff"
+                onChange={e => { fillIn(e.target.files); e.target.value = '' }} />
+            </label>
+          )}
         </div>
+        {al.source === 'netease' && <p className="ia-meta ia-source">{t('neteaseAlbum')}</p>}
+        {filling && (
+          <p className="ia-meta">
+            {filling.done < filling.total ? t('fillingIn', { done: filling.done, total: filling.total }) : t('filledIn', { n: filling.total })}
+            {filling.missed.length > 0 && <> · {t('fillMissed', { n: filling.missed.length })} <span className="ia-missed">{filling.missed.join(', ')}</span></>}
+          </p>
+        )}
         {note && <p className="ia-meta">{note}</p>}
 
         <ol className="ia-tracks">
@@ -401,6 +453,18 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, ...actions 
                       {busy === r.key ? '…' : <><I.Plus size={9} /> {t('addToLibrary')}</>}
                     </button>}
                   <button className="ia-link" onClick={() => setPicker(picker === r.key ? null : r.key)} title={t('pickSource')}>⋯</button>
+                  {!song && (
+                    <label className="ia-link filepick" title={t('importForTrack')}>
+                      <I.Upload size={9} />
+                      <input type="file" accept="audio/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.ape,.wv,.aif,.aiff" onChange={e => {
+                        const f = e.target.files?.[0]
+                        e.target.value = ''
+                        if (!f) return
+                        setBusy(`f${r.key}`)
+                        importFor(r, f).catch(err => alert((err as Error).message)).finally(() => setBusy(null))
+                      }} />
+                    </label>
+                  )}
                 </span>
               </li>,
               picker === r.key && (

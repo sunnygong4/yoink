@@ -106,6 +106,7 @@ export type Album = {
   description: string | null
   tracks: (CatalogSong & { track: number | null; disc: number | null })[]
   slug: string
+  source?: 'netease'   // iTunes doesn't have it: NetEase Cloud Music's names, cover and track list (no audio)
 }
 
 export type Play = {
@@ -248,11 +249,12 @@ export const api = {
   importLink: (url: string, info: { title: string; artist: string; album: string }) =>
     call<Song>('/api/songs/link', { url, ...info }),
   // XHR rather than fetch: it reports upload progress
-  upload: (file: File, info: { title: string; artist: string; album: string }, cover: File | null,
+  // artwork: a catalog cover (NetEase / Apple) the server fetches, when no cover file comes along
+  upload: (file: File, info: { title: string; artist: string; album: string; artwork?: string }, cover: File | null,
     onProgress: (percent: number) => void) => new Promise<Song>((resolve, reject) => {
     const form = new FormData()
     form.append('file', file)
-    Object.entries(info).forEach(([k, v]) => form.append(k, v))
+    Object.entries(info).forEach(([k, v]) => { if (v != null) form.append(k, v) })
     if (cover) form.append('cover', cover)
     const x = new XMLHttpRequest()
     x.open('POST', '/api/songs/upload')
