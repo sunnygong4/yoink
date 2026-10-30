@@ -549,6 +549,23 @@ def _ne_year(ms) -> str:
     return time.strftime("%Y", time.gmtime(ms / 1000)) if isinstance(ms, (int, float)) and ms > 0 else ""
 
 
+# words that say "the soundtrack" (or just "the album"): a hint, not part of the name ("我不是药神 ost" is
+# 《我不是药神》电影原声音乐专辑, which has no "ost" in it)
+_ALBUM_WORDS = re.compile(r"(?i)(?<![a-z])(o\.?s\.?t\.?|soundtrack|original score|score|bgm|album)(?![a-z])|"
+                          r"电影原声|電影原聲|影视原声|影視原聲|原声带|原聲帶|原声|原聲|配乐|配樂|专辑|專輯")
+_SOUNDTRACK = re.compile(r"(?i)(?<![a-z])(o\.?s\.?t|soundtrack|score)(?![a-z])|原声|原聲|配乐|配樂")
+
+
+def album_query(q: str) -> tuple[str, bool]:
+    """The search without its album words, and whether it asked for a soundtrack."""
+    core = re.sub(r"\s+", " ", _ALBUM_WORDS.sub(" ", q)).strip()
+    return core or q.strip(), bool(_SOUNDTRACK.search(q))
+
+
+def is_soundtrack(title: str) -> bool:
+    return bool(_SOUNDTRACK.search(title or ""))
+
+
 def netease_albums(q: str, limit: int = 6) -> list[dict]:
     """Albums of this name on NetEase, shaped like catalog.albums'. Asked often, NetEase answers with unrelated
     albums (its guard against scraping): the ones that are the search are kept for a day, so it's asked less."""

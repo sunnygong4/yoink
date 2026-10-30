@@ -236,13 +236,17 @@ def catalog_search(q: str, user=Depends(auth.current_user)):
     # songs on the server the store doesn't have (named by whoever added them): for everyone who searches
     local = lib.local_search(q, user, docs)
     # albums the store doesn't have (Chinese film scores...): NetEase's, when their name is what was searched
+    # ("ost", "原声", "专辑" are hints, not part of the name: a soundtrack was asked for, those go first)
+    core, ost = pages.album_query(q)
     have = {(pages.flat(a["title"]), pages.flat(cat.lead_artist(a["artist"]))) for a in albums}
-    more = [a for a in pages.netease_albums(q) if cat.relevance(q, a["title"], a["artist"], None) == 1
+    more = [a for a in pages.netease_albums(core) if cat.relevance(core, a["title"], a["artist"], None) == 1
             and (pages.flat(a["title"]), pages.flat(cat.lead_artist(a["artist"]))) not in have]
-    if more:
+    good = [a for a in albums if cat.relevance(core, a["title"], a["artist"], None) == 1]
+    if more or ost:
         # first when none of the store's is really what was searched
-        good = [a for a in albums if cat.relevance(q, a["title"], a["artist"], None) == 1]
         albums = good + more + [a for a in albums if a not in good]
+        if ost:
+            albums.sort(key=lambda a: not pages.is_soundtrack(a["title"]))   # stable: otherwise as they were
     return {"songs": songs, "artists": artists, "albums": albums, "top": cat.top_result(q, artists, albums, songs),
             "matched": matched + len(local), "local": local}
 
