@@ -27,6 +27,7 @@ import social
 import groups
 import migrate
 import playlists
+import classical
 
 app = FastAPI(title="Yoinker")
 
@@ -565,6 +566,50 @@ class GroupControl(BaseModel):
     index: int | None = None
     pos: float | None = None
     from_index: int | None = None
+
+
+# ---------- classical: composers, works and scores from IMSLP; each person's saved scores ----------
+
+class ScoreSave(BaseModel):
+    work: str
+    file: str | None = None
+    label: str | None = None
+
+
+@app.get("/api/classical")
+def classical_home(req: Request, _=Depends(auth.current_user)):
+    return {"composers": classical.featured(i18n.lang_of(req.headers))}
+
+
+@app.get("/api/classical/search")
+def classical_search(q: str, _=Depends(auth.current_user)):
+    return classical.search(q)
+
+
+@app.get("/api/classical/composer")
+def classical_composer(name: str, req: Request, _=Depends(auth.current_user)):
+    return classical.composer(name, i18n.lang_of(req.headers))
+
+
+@app.get("/api/classical/work")
+def classical_work(page: str, _=Depends(auth.current_user)):
+    return classical.work(page)
+
+
+@app.get("/api/scores")
+def my_scores(user=Depends(auth.current_user)):
+    return classical.saved(user)
+
+
+@app.post("/api/scores")
+def save_score(body: ScoreSave, user=Depends(auth.current_user)):
+    return classical.save(user, body.work, body.file, body.label)
+
+
+@app.delete("/api/scores/{sid}")
+def unsave_score(sid: int, user=Depends(auth.current_user)):
+    classical.unsave(user, sid)
+    return {"ok": True}
 
 
 # ---------- playlists: each person's own ----------

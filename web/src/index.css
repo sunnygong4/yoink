@@ -1129,3 +1129,54 @@ input.pl-name { padding: 0 4px; height: 32px; border: 1px solid #7aa7e8; border-
   color: var(--ia-fg); text-shadow: none; border-radius: 11px; vertical-align: middle; }
 .on-light .ia-buttons .ia-fill { background: rgba(0, 0, 0, .06); }
 .ialbum .ia-link.filepick { height: auto; padding: 0 3px; border: none; background: none; text-shadow: none; color: inherit; }
+
+/* ---------- Classical (IMSLP) and My scores ---------- */
+.classical { padding-bottom: 30px; }
+.classical section { margin-bottom: 10px; }
+.cl-hero { padding: 22px 22px 8px; }
+.cl-hero h1, .cl-head h1, .cl-work-head h1 { font-size: 26px; margin: 0 0 4px; }
+.cl-search { display: flex; gap: 8px; margin-top: 12px; max-width: 560px; }
+.cl-search .searchfield { flex: 1; }
+.cl-composers { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 18px 14px; padding: 6px 22px 10px; }
+.cl-composer { display: flex; flex-direction: column; align-items: center; gap: 4px; height: auto; padding: 6px 4px; border: none;
+  background: none; box-shadow: none; text-shadow: none; white-space: normal; text-align: center; }
+.cl-composer img, .cl-composer .cl-blank { width: 104px; height: 104px; border-radius: 50%; object-fit: cover; object-position: top;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .3); background: #d5d9df; }
+.cl-blank { display: grid; place-items: center; font-size: 34px; color: #fff; background: linear-gradient(#c9ced6, #9aa3b1); }
+.cl-composer .name { font-weight: bold; font-size: 13px; }
+.cl-composer .sub { font-size: 11px; color: #777; }
+.cl-composer:hover .name { color: #1a5bc4; }
+.cl-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 22px 8px; }
+.cl-works { padding: 0 22px 0 40px; line-height: 1.7; }
+.cl-works a, .cl-worklist a, .cl-work-head a, .cl-saved a { cursor: pointer; color: #1a5bc4; }
+.cl-head { display: flex; gap: 20px; padding: 22px; align-items: flex-start; }
+.cl-photo { width: 140px; height: 140px; border-radius: 50%; object-fit: cover; object-position: top; flex: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.cl-head-text { min-width: 0; }
+.cl-extract { max-width: 760px; line-height: 1.5; margin: 8px 0; }
+.cl-worklist .c-cat { width: 110px; color: #666; white-space: nowrap; }
+.cl-worklist tbody tr { cursor: pointer; }
+.cl-work-head { padding: 22px 22px 6px; }
+.cl-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.classical .ia-buttons button, .classical .button-link { border-radius: 11px; }
+.button-link { display: inline-flex; align-items: center; height: 22px; padding: 0 11px; border: 1px solid #8e8e8e; border-radius: 4px;
+  color: #222; text-decoration: none; background: linear-gradient(#fefefe, #f1f1f1 50%, #e1e1e1 51%, #ededed); font-size: 12px; }
+.cl-info { margin: 4px 22px 12px; border-collapse: collapse; max-width: 860px; font-size: 12px; }
+.cl-info th { text-align: left; vertical-align: top; color: #666; font-weight: normal; padding: 3px 16px 3px 0; white-space: nowrap; }
+.cl-info td { padding: 3px 0; line-height: 1.45; }
+.cl-editions { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; padding: 6px 22px; }
+.cl-edition { border: 1px solid #cfd3d9; border-radius: 6px; padding: 9px 11px; background: #fbfbfc; min-width: 0; }
+.cl-ed-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 3px; }
+.cl-edition ul { list-style: none; padding: 0; margin: 6px 0 0; }
+.cl-edition li { display: flex; align-items: center; gap: 6px; padding: 2px 0; min-width: 0; }
+.cl-edition li a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1a5bc4; }
+.cl-edition li .mini { margin-left: auto; }
+.cl-saved .cl-act > * { visibility: visible; }
+@media (max-width: 760px) {
+  .cl-composers { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); padding: 6px 12px; }
+  .cl-composer img, .cl-composer .cl-blank { width: 80px; height: 80px; }
+  .cl-head { flex-direction: column; align-items: center; text-align: center; padding: 16px; }
+  .cl-photo { width: 110px; height: 110px; }
+  .cl-editions { grid-template-columns: 1fr; padding: 6px 12px; }
+  .cl-info { margin: 4px 12px 12px; }
+}

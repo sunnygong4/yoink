@@ -16,6 +16,7 @@ import Player from './Player'
 import { useIPod } from './ipod'
 import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
+import { ClassicalHome, ComposerPage, ScoresPage, WorkPage } from './Classical'
 import { AddToPlaylist, freshName, PlaylistPage, SONG_DRAG } from './Playlists'
 import { type Actions, CatalogRow, type How, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
 import EditSong from './EditSong'
@@ -191,6 +192,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           <button className={page.kind === 'library' && page.view === 'artists' ? 'on' : ''} onClick={() => go({ kind: 'library', view: 'artists' })}>
             <I.Mic size={15} /> <span>{t('viewArtists')}</span>
           </button>
+          <h4>{t('catalogHeading')}</h4>
+          <button className={['classical', 'composer', 'work'].includes(page.kind) ? 'on' : ''} onClick={() => go({ kind: 'classical' })}>
+            <I.Score size={15} /> <span>{t('classical')}</span>
+          </button>
           <h4 className="pl-heading">{t('playlistsHeading')}
             <button className="flat" onClick={() => newPlaylist()} title={t('newPlaylist')}><I.Plus size={11} /></button>
           </h4>
@@ -271,6 +276,10 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {!online && <div className="notice offline">{t('offlineNotice', { n: saved.size })}</div>}
           {page.kind === 'user' && <ProfilePage key={page.name} name={page.name} me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'groups' && <GroupsPage open={open} />}
+          {page.kind === 'classical' && <ClassicalHome open={open} />}
+          {page.kind === 'composer' && <ComposerPage key={page.name} name={page.name} open={open} />}
+          {page.kind === 'work' && <WorkPage key={page.page} page={page.page} open={open} />}
+          {page.kind === 'scores' && <ScoresPage open={open} />}
           {page.kind === 'playlist' && <PlaylistPage key={page.id} id={page.id} currentId={q.current} open={open} play={q.play}
             playNext={q.playNext} enqueue={q.enqueue} onSong={onSong} onChanged={loadLists} onDeleted={() => go({ kind: 'library' })} />}
           {page.kind === 'group' && <GroupPage key={page.id} id={page.id} me={user.name} library={library} open={open} onSong={onSong}

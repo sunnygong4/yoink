@@ -17,6 +17,10 @@ export type Page =
   | { kind: 'groups' }
   | { kind: 'group'; id: number }
   | { kind: 'playlist'; id: number }
+  | { kind: 'classical' }                  // the Classical catalog (IMSLP)
+  | { kind: 'composer'; name: string }     // IMSLP's name: "Bach, Johann Sebastian"
+  | { kind: 'work'; page: string }         // an IMSLP work page
+  | { kind: 'scores' }                     // the scores this person keeps
   | { kind: 'search'; q?: string }   // q: run this search when the page opens
   | { kind: 'history' }
   | { kind: 'device' }
@@ -41,6 +45,10 @@ export function urlFor(p: Page): string {
     case 'groups': return '/groups'
     case 'group': return `/groups/${p.id}`
     case 'playlist': return `/playlists/${p.id}`
+    case 'classical': return '/classical'
+    case 'composer': return `/classical/composer/${encodeURIComponent(p.name)}`
+    case 'work': return `/classical/work/${encodeURIComponent(p.page)}`
+    case 'scores': return '/scores'
     case 'search': return p.q ? `/find?${new URLSearchParams({ q: p.q })}` : '/find'
     case 'history': return '/history'
     case 'device': return '/ipod'
@@ -70,6 +78,10 @@ export function pageFromUrl(): Page {
   if (kind === 'friends') return { kind: 'friends' }
   if (kind === 'groups' && a && /^\d+$/.test(a)) return { kind: 'group', id: Number(a) }
   if (kind === 'groups') return { kind: 'groups' }
+  if (kind === 'classical' && a === 'composer' && b) return { kind: 'composer', name: decodeURIComponent(b) }
+  if (kind === 'classical' && a === 'work' && b) return { kind: 'work', page: decodeURIComponent(location.pathname.split('/').slice(3).join('/')) }
+  if (kind === 'classical') return { kind: 'classical' }
+  if (kind === 'scores') return { kind: 'scores' }
   if (kind === 'playlists' && a && /^\d+$/.test(a)) return { kind: 'playlist', id: Number(a) }
   if (kind === 'find') return { kind: 'search', q: new URLSearchParams(location.search).get('q') || undefined }
   if (kind === 'history') return { kind: 'history' }

@@ -27,6 +27,22 @@ export type Song = {
 export type MigrateSong = { title: string; artist: string; album: string; duration?: number; plays: number; lists: string[]; have: boolean }
 export type MigrateJob = { total: number; done: number; added: number; failed: string[]; current: string | null; finished: boolean }
 
+// the Classical catalog (IMSLP)
+export type ComposerPage = { category: string; name: string; zh?: string | null; image?: string | null }
+export type ClassicalWork = { page: string; name: string; composer?: string; catalogue?: string }
+export type ScoreEdition = {
+  kind: 'score' | 'arrangement'; group: string; editor: string; publisher: string; copyright: string; type: string; notes: string
+  files: { file: string; label: string; url: string }[]
+}
+export type Work = {
+  page: string; name: string; composer: string; composer_name: string; composer_zh: string | null
+  info: Record<string, string>; scores: ScoreEdition[]; recordings: number; imslp: string
+}
+export type SavedScore = {
+  id: number; work: string; name: string; composer: string; composer_name: string; composer_zh: string | null
+  file: string | null; label: string | null; added_at: number; url: string
+}
+
 export type PlaylistSummary = { id: number; name: string; songs: number }
 
 // a real song from the catalog (iTunes): one per song per artist
@@ -237,6 +253,15 @@ export const api = {
   migrateAdd: (songs: MigrateSong[]) =>
     call<MigrateJob>('/api/migrate/add', { songs: songs.map(({ title, artist, album, duration }) => ({ title, artist, album, duration })) }),
   migrateStatus: () => call<MigrateJob | null>('/api/migrate'),
+  // the Classical catalog (IMSLP), and the scores each person keeps
+  classical: () => call<{ composers: ComposerPage[] }>('/api/classical'),
+  classicalSearch: (q: string) => call<{ composers: ComposerPage[]; works: ClassicalWork[] }>(`/api/classical/search?${new URLSearchParams({ q })}`),
+  composer: (name: string) => call<ComposerPage & { extract: string | null; works: ClassicalWork[]; imslp: string }>(
+    `/api/classical/composer?${new URLSearchParams({ name })}`),
+  work: (page: string) => call<Work>(`/api/classical/work?${new URLSearchParams({ page })}`),
+  scores: () => call<SavedScore[]>('/api/scores'),
+  saveScore: (work: string, file?: string, label?: string) => call('/api/scores', { work, file, label }),
+  unsaveScore: (id: number) => call(`/api/scores/${id}`, undefined, 'DELETE'),
   // playlists: each person's own, of library songs
   playlists: () => call<PlaylistSummary[]>('/api/playlists'),
   createPlaylist: (name: string) => call<PlaylistSummary>('/api/playlists', { name }),

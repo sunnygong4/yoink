@@ -370,6 +370,9 @@ export default function Player({ q, byId, onSong, open, saved, online, pod, rere
         <div className="modes">
           <ModeButtons q={q} />
           <LuckyButton tr={tr} />
+          <button className="square" onClick={() => open({ kind: 'scores' })} title={t('myScores')}>
+            <I.Score size={15} />
+          </button>
           <button className={'square' + (drawer ? ' pressed' : '')} onClick={() => setDrawer(!drawer)} title={t('queue')}>
             <I.QueueIcon size={15} />
           </button>

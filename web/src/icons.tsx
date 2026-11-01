@@ -24,6 +24,7 @@ export const QueueIcon = (p: P) => svg(<><path d="M3 6h13" /><path d="M3 12h13" 
 export const Expand = (p: P) => svg(<><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" /></>, p)
 export const Close = (p: P) => svg(<><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>, p)
 export const Down = (p: P) => svg(<path d="m6 9 6 6 6-6" />, p)
+export const Score = (p: P) => svg(<><path d="M3 5h18" /><path d="M3 9h18" /><path d="M3 13h18" /><path d="M3 17h7" /><path d="M16 9v9" /><ellipse cx="13.6" cy="18" rx="2.6" ry="2" /><path d="M16 9c1.5 1 3 1 4 3" /></>, p)
 export const List = (p: P) => svg(<><path d="M8 6h13" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M3.5 6h.01" /><path d="M3.5 12h.01" /><path d="M3.5 18h.01" /></>, p)
 export const ListAdd = (p: P) => svg(<><path d="M3 6h12" /><path d="M3 12h12" /><path d="M3 18h8" /><path d="M18 15v6" /><path d="M15 18h6" /></>, p)
 export const Plus = (p: P) => svg(<><path d="M12 5v14" /><path d="M5 12h14" /></>, p)
