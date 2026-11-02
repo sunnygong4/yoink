@@ -228,8 +228,6 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
       case 'root': return [
         { label: t('podMusic'), more: true, go: () => list('music', t('podMusic')) },
         { label: t('search'), more: true, dim: !p.online, go: () => p.online && push({ kind: 'search', sel: 0, top: 0 }) },
-        { label: t('forYou'), more: true, dim: !p.online, go: () => { if (!p.online) return; list('picks', t('forYou')); if (!picks) loadPicks(false) } },
-        { label: t('podShuffleSongs'), go: () => { if (!pool.length) return message(t('podMusic'), t('podNoMusic')); if (!q.shuffle) q.toggleShuffle(); playList(pool, Math.floor(Math.random() * pool.length)) } },
         ...(song ? [{ label: t('podNowPlaying'), more: true, go: openNow }] : []),
         ...(song?.radio ? [{ label: `♥ ${t('keep')}`, right: song.title, go: () => api.keep(song.id).then(p.onSong) }] : []),
         { label: t('thisDevice'), more: true, right: p.saved.size ? String(p.saved.size) : '', go: () => list('saved', t('thisDevice')) },
@@ -240,6 +238,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         { label: t('podArtists'), more: true, go: () => list('artists', t('podArtists')) },
         { label: t('podAlbums'), more: true, go: () => list('albums', t('podAlbums')) },
         { label: t('podSongs'), more: true, go: () => list('songs', t('podSongs')) },
+        { label: t('forYou'), more: true, dim: !p.online, go: () => { if (!p.online) return; list('picks', t('forYou')); if (!picks) loadPicks(false) } },
+        { label: t('podShuffleSongs'), go: () => { if (!pool.length) return message(t('podMusic'), t('podNoMusic')); if (!q.shuffle) q.toggleShuffle(); playList(pool, Math.floor(Math.random() * pool.length)) } },
         ...(!p.online ? [{ label: t('podOfflineOnly'), dim: true }] : []),
       ]
       case 'recent': {   // 新加入: the library's newest songs first
