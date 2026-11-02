@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, type CatalogResults, type CatalogSong, type Lyrics, type Song, type Source, type Upload, type User } from './api'
+import { api, type Album, type Artist, type CatalogResults, type CatalogSong, type Lyrics, type Song, type Source, type Upload, type User } from './api'
+import { albumPage } from './Pages'
 import { uploadSong } from './Rows'
 import { getQuality, type Quality, setQuality } from './quality'
 import { getLang, setLang, t } from './i18n'
@@ -26,7 +27,7 @@ export type PodProps = {
   audioTest: () => void                        // the audio test page
 }
 
-type Item = { label: string; right?: string; more?: boolean; dim?: boolean; go?: () => void }
+type Item = { label: string; right?: string; more?: boolean; dim?: boolean; head?: boolean; go?: () => void }   // head: a section's title
 type Screen =
   | { kind: 'list'; id: string; title: string; arg?: string; sel: number; top: number }
   | { kind: 'now'; mode: 'volume' | 'scrub' | 'lyrics' }
@@ -34,6 +35,27 @@ type Screen =
   | { kind: 'message'; title: string; text: string }
 
 const COLOUR = 'yoinker.pod.colour'
+const RECENT = 'yoinker.pod.searches'
+const readRecent = (): string[] => { try { return JSON.parse(localStorage.getItem(RECENT) || '[]') } catch { return [] } }
+
+/** Library songs that have every word of the search in their name, artist or album. */
+function libraryMatch(songs: Song[], term: string) {
+  const words = term.split(/\s+/).map(flat).filter(Boolean)
+  const hay = (s: Song) => flat(`${s.title} ${s.artist} ${s.artist_main ?? ''} ${s.album ?? ''}`)
+  const has = (text: string) => words.every(w => text.includes(w))
+  const songs_ = songs.filter(s => has(hay(s)))
+  const artists = [...new Set(songs.map(s => mainArtist(s)).filter(a => a && has(flat(a))))]
+  const albums = new Map<string, Song>()
+  for (const s of songs) if (s.album && has(flat(`${s.album} ${mainArtist(s)}`)) && !albums.has(`${flat(s.album)}|${flat(mainArtist(s))}`)) albums.set(`${flat(s.album)}|${flat(mainArtist(s))}`, s)
+  // the closest first: the name starting with the search, then containing it
+  const first = flat(term)
+  const rank = (name: string) => (flat(name) === first ? 0 : flat(name).startsWith(first) ? 1 : 2)
+  return {
+    songs: songs_.sort((a, b) => rank(a.title) - rank(b.title)),
+    artists: artists.sort((a, b) => rank(a) - rank(b)),
+    albums: [...albums.values()].sort((a, b) => rank(a.album!) - rank(b.album!)),
+  }
+}
 const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 const BASE_W = 268, BASE_H = 440, ROWS = 8, SCREEN = 168, WHEEL = 186
 
@@ -92,6 +114,20 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   const [results, setResults] = useState<CatalogResults | null>(null)
   const [finds, setFinds] = useState<Upload[]>([])   // YouTube finds, when the catalog hardly knows the song
   const [searching, setSearching] = useState(false)
+  const [recent, setRecent] = useState<string[]>(readRecent)
+  const [remote, setRemote] = useState<Record<string, Artist | Album | 'error'>>({})   // catalog artist / album pages
+  const asked = useRef(new Set<string>())
+  // which catalog page a screen shows (and how to load it)
+  const remoteFor = (s: Screen): [string, () => Promise<Artist | Album>] | null => {
+    if (s.kind !== 'list' || !s.arg) return null
+    if (s.id === 'catArtist') return [`artist:${s.arg}`, () => api.artist(s.arg!)]
+    if (s.id === 'catAlbum') {
+      const ref = JSON.parse(s.arg) as { artist: string; title: string; id?: number | null }
+      const page = albumPage(ref.artist, ref.title, ref.id) as { key: string; id?: number }
+      return [`album:${page.key}|${page.id ?? ''}`, () => api.album(page.key, page.id)]
+    }
+    return null
+  }
   const [picks, setPicks] = useState<CatalogSong[] | null>(null)
   const [added, setAdded] = useState<Record<string, string>>({})   // catalog key -> library id
   const [busy, setBusy] = useState('')                             // what's being fetched (shown on screen)
@@ -122,7 +158,9 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     { title: t('pt8Title'), body: t('pt8Body') },
     { title: t('pt9Title'), body: t('pt9Body') },
   ]
-  const rows = ROWS
+  // a phone: the screen grows into the room above the wheel (more rows to read and touch); the lesson needs that room
+  const screenH = fit.full && tour === null ? Math.round(Math.max(SCREEN, Math.min(360, fit.h - 16 - WHEEL - 36))) : SCREEN
+  const rows = screenH === SCREEN ? ROWS : Math.floor((screenH - 18) / 18.5)
 
   // a phone becomes the iPod (its body fills the screen, the wheel centred below the 4:3 screen);
   // anything wider shows an iPod standing in the middle
@@ -240,6 +278,42 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         songs.sort(by(x => x.title))
         if (!songs.length) return [{ label: t('podNoMusic'), dim: true }]
         return songs.map((x, i) => ({ label: x.title, right: s.id === 'songs' ? mainArtist(x) : '', go: () => playList(songs, i) }))
+      }
+      case 'searchLib': {   // every library song the search found
+        const songs = libraryMatch(pool, s.arg!).songs
+        return songs.map((x, i) => ({ label: x.title, right: mainArtist(x), go: () => playList(songs, i) }))
+      }
+      case 'catArtist': {   // an artist from the catalog: their best-known songs and albums
+        const a = remote[remoteFor(s)![0]] as Artist | 'error' | undefined
+        if (!a) return [{ label: t('forYouLoading'), dim: true }]
+        if (a === 'error') return [{ label: t('podError'), dim: true }]
+        const mine = pool.some(x => flat(mainArtist(x)) === flat(a.name))
+        const top = a.top.slice(0, 15)
+        return [
+          ...(mine ? [{ label: t('podInYourLibrary'), more: true, go: () => list('artist', a.name, pool.find(x => flat(mainArtist(x)) === flat(a.name)) ? mainArtist(pool.find(x => flat(mainArtist(x)) === flat(a.name))!) : a.name) }] : []),
+          ...(top.length ? [{ label: t('podTopSongs'), head: true }, ...top.map(catalogItem)] : []),
+          ...(a.albums.length ? [{ label: t('podAlbums'), head: true }, ...a.albums.slice(0, 30).map(al => ({
+            label: al.title, right: al.year, more: true,
+            go: () => list('catAlbum', al.title, JSON.stringify({ artist: al.artist, title: al.title, id: al.id })),
+          }))] : []),
+        ]
+      }
+      case 'catAlbum': {   // an album from the catalog: its tracks
+        const al = remote[remoteFor(s)![0]] as Album | 'error' | undefined
+        if (!al) return [{ label: t('forYouLoading'), dim: true }]
+        if (al === 'error') return [{ label: t('podError'), dim: true }]
+        const ready = al.tracks.map(libFor).filter((x): x is Song => !!x && x.status === 'ready')
+        return [
+          ...(ready.length ? [{ label: `▶ ${t('podPlayAlbum')}`, right: String(ready.length), go: () => playList(ready, 0) }] : []),
+          ...(ready.length < al.tracks.length ? [{ label: `+ ${t('addAlbum')}`, go: async () => {
+            setBusy(al.title)
+            try { await api.addAlbum(al.slug, al.id ?? undefined); message(al.title, t('albumAdding', { n: al.tracks.length - ready.length })) }
+            catch (e) { message(t('podError'), (e as Error).message) }
+            setBusy('')
+          } }] : []),
+          { label: `${al.artist}${al.year ? ` · ${al.year}` : ''}`, dim: true },
+          ...al.tracks.map(c => ({ ...catalogItem(c), right: libFor(c) ? '✓' : fmt(c.duration || 0) })),
+        ]
       }
       case 'picks': return [
         { label: `↻ ${t('forYouMore')}`, go: () => loadPicks(true) },
@@ -360,42 +434,84 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     api.forYou(fresh).then(setPicks).catch(() => setPicks([]))
   }, [])
 
-  // search: artists as you type, then the catalog
+  // search, like Apple Music's: as you type, your library at once and the catalog a moment later, by section
+  const searched = useRef('')
   useEffect(() => {
     const term = query.trim()
-    if (top.kind !== 'search' || !term || results) { setSuggest([]); return }
+    if (top.kind !== 'search' || !term) { setSearching(false); return }
+    if (results && searched.current === term) return
     let live = true
-    const timer = setTimeout(() => api.suggest(term).then(r => { if (live) setSuggest(r) }).catch(() => {}), 250)
+    setSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const found = await api.catalog(term)
+        if (!live) return
+        searched.current = term
+        setResults(found)
+        setFinds(found.matched < 3 ? await api.uploads(term).catch(() => []) : [])
+      } catch { /* offline, or the catalog's slow: the library's still there */ }
+      if (live) setSearching(false)
+    }, 350)
     return () => { live = false; clearTimeout(timer) }
-  }, [query, top.kind, results])
-  async function runSearch(term: string) {
+  }, [query, top.kind])
+  void suggest; void setSuggest
+  function remember(term: string) {
+    const r = [term, ...recent.filter(x => x !== term)].slice(0, 8)
+    setRecent(r)
+    try { localStorage.setItem(RECENT, JSON.stringify(r)) } catch { /* private mode */ }
+  }
+  function runSearch(term: string) {
     if (!term.trim()) return
     input.current?.blur()
     setQuery(term)
-    setSearching(true)
-    setSuggest([])
-    setFinds([])
-    let found: CatalogResults | null = null
-    try { found = await api.catalog(term); setResults(found) } catch (e) { message(t('podError'), (e as Error).message) }
-    if (!found || found.matched < 3) setFinds(await api.uploads(term).catch(() => []))
-    setSearching(false)
-    setStack(st => st.map((x, i) => (i === st.length - 1 && x.kind === 'search' ? { ...x, sel: 0, top: 0 } : x)))
+    remember(term.trim())
   }
   function searchItems(): Item[] {
-    if (searching) return [{ label: t('searching'), dim: true }]
-    if (results) {
-      const artistNames = results.artists.map(a => a.name).slice(0, 3)
-      return [
-        ...artistNames.map(n => ({ label: n, right: t('artistKind'), more: true, go: () => { setResults(null); runSearch(n) } })),
-        ...results.songs.map(catalogItem),
-        ...finds.map(r => ({ label: r.title, right: 'YouTube', more: true, go: () => list('upload', r.title, JSON.stringify(r)) })),
-        ...(!results.songs.length && !finds.length ? [{ label: t('nothingOnYouTube'), dim: true }] : []),
-      ]
+    const term = query.trim()
+    if (!term) {
+      return recent.length ? [
+        { label: t('podRecentSearches'), head: true },
+        ...recent.map(r => ({ label: r, more: true, go: () => runSearch(r) })),
+        { label: t('podClearSearches'), dim: true, go: () => { setRecent([]); try { localStorage.removeItem(RECENT) } catch { /* private mode */ } } },
+      ] : [{ label: t('podSearchHint'), dim: true }]
     }
-    return [
-      ...suggest.map(n => ({ label: n, right: t('artistKind'), more: true, go: () => runSearch(n) })),
-      ...(query.trim() ? [{ label: t('searchFor', { q: query.trim() }), go: () => runSearch(query) }] : []),
-    ]
+    // (what's tapped is remembered as a recent search)
+    const keep = (f?: () => void) => () => { remember(term); f?.() }
+    const mine = libraryMatch(pool, term)
+    const cat = results && searched.current === term ? results : null
+    const out: Item[] = []
+    if (mine.artists.length || mine.albums.length || mine.songs.length) {
+      out.push({ label: t('podInYourLibrary'), head: true })
+      out.push(...mine.artists.slice(0, 3).map(a => ({ label: a, right: t('artistKind'), more: true, go: keep(() => list('artist', a, a)) })))
+      out.push(...mine.albums.slice(0, 3).map(x => ({ label: x.album!, right: mainArtist(x), more: true,
+        go: keep(() => list('songsOf', x.album!, `album:${mainArtist(x)}|${x.album}`)) })))
+      const songs = mine.songs.slice(0, 6)
+      out.push(...songs.map((x, i) => ({ label: x.title, right: mainArtist(x), go: keep(() => playList(mine.songs, i)) })))
+      if (mine.songs.length > songs.length) out.push({ label: t('podAllLibrarySongs', { n: mine.songs.length }), more: true, go: keep(() => list('searchLib', term, term)) })
+    }
+    if (cat) {
+      if (cat.artists.length) {
+        out.push({ label: t('podArtists'), head: true })
+        out.push(...cat.artists.slice(0, 4).map(a => ({ label: a.name, right: a.genre || '', more: true, go: keep(() => list('catArtist', a.name, a.name)) })))
+      }
+      if (cat.albums.length) {
+        out.push({ label: t('podAlbums'), head: true })
+        out.push(...cat.albums.slice(0, 6).map(a => ({ label: a.title, right: leadArtist(a.artist), more: true,
+          go: keep(() => list('catAlbum', a.title, JSON.stringify({ artist: a.artist, title: a.title, id: a.id }))) })))
+      }
+      if (cat.songs.length) {
+        out.push({ label: t('podSongs'), head: true })
+        out.push(...cat.songs.map(c => { const it = catalogItem(c); return { ...it, go: keep(it.go) } }))
+      }
+      if (finds.length) {
+        out.push({ label: 'YouTube', head: true })
+        out.push(...finds.map(r => ({ label: r.name?.title || r.title, right: r.name?.artist || r.channel, more: true,
+          go: keep(() => list('upload', r.title, JSON.stringify(r))) })))
+      }
+    }
+    if (searching) out.push({ label: t('searching'), dim: true })
+    else if (!out.length) out.push({ label: t('nothingOnYouTube'), dim: true })
+    return out
   }
 
   const current = top.kind === 'list' ? items(top) : top.kind === 'search' ? searchItems() : []
@@ -408,7 +524,9 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     scrolled.current++
     if (top.kind === 'list' || top.kind === 'search') {
       const n = current.length
-      const sel = Math.max(0, Math.min(n - 1, top.sel + step))
+      let sel = Math.max(0, Math.min(n - 1, top.sel + step))
+      while (current[sel]?.head && sel > 0 && sel < n - 1) sel += Math.sign(step)   // (section titles aren't stops)
+      if (current[sel]?.head) sel = top.sel
       if (sel === top.sel) return
       tick()
       setTop(s => {
@@ -426,6 +544,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     tick()
     if (top.kind === 'list' || top.kind === 'search') {
       const at = i ?? top.sel
+      if (current[at]?.head) return
       if (i !== undefined) setTop(s => (s.kind === 'list' || s.kind === 'search' ? { ...s, sel: at } : s))
       current[at]?.go?.()
     } else if (top.kind === 'now') {
@@ -435,7 +554,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   }
   function menu() {
     tick()
-    if (top.kind === 'search' && results) { setResults(null); return }
+    // in search, MENU first clears what's typed (like Cancel), then goes back
+    if (top.kind === 'search' && query) { setQuery(''); setResults(null); setFinds([]); searched.current = ''; return }
     if (stack.length > 1) setStack(st => st.slice(0, -1))
   }
   const playPause = () => { tick(); tr.toggle() }
@@ -527,7 +647,60 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [])
-  useEffect(() => { if (top.kind === 'search' && !results) setTimeout(() => input.current?.focus(), 50) }, [top.kind, results])
+  useEffect(() => { if (top.kind === 'search' && !query) setTimeout(() => input.current?.focus(), 50) }, [top.kind])
+  // a catalog artist / album screen: its page, loaded once
+  useEffect(() => {
+    const r = remoteFor(top)
+    if (!r || asked.current.has(r[0])) return
+    const [key, load] = r
+    asked.current.add(key)
+    load().then(v => setRemote(m => ({ ...m, [key]: v })))
+      .catch(() => { asked.current.delete(key); setRemote(m => ({ ...m, [key]: 'error' })) })
+  }, [top])
+  // a new search's results start at their first row
+  useEffect(() => {
+    if (top.kind !== 'search') return
+    setStack(st => st.map((x, i) => (i === st.length - 1 && x.kind === 'search' ? { ...x, sel: current.findIndex(it => !it.head && !it.dim) > -1 ? current.findIndex(it => !it.head && !it.dim) : 0, top: 0 } : x)))
+  }, [query, results, top.kind])
+
+  // ---------- the screen by touch: drag to scroll, tap a row, swipe right for back; the progress bar seeks ----------
+  const pan = useRef<{ x: number; y: number; top: number; moved: boolean } | null>(null)
+  const panned = useRef(false)
+  const onViewDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return
+    pan.current = { x: e.clientX, y: e.clientY, top: top.kind === 'list' || top.kind === 'search' ? top.top : 0, moved: false }
+    panned.current = false
+  }
+  const onViewMove = (e: React.PointerEvent) => {
+    const d = pan.current
+    if (!d) return
+    const dx = e.clientX - d.x, dy = e.clientY - d.y
+    if (!d.moved && Math.hypot(dx, dy) > 7) { d.moved = true; panned.current = true; input.current?.blur() }
+    if (!d.moved || Math.abs(dy) < Math.abs(dx) || (top.kind !== 'list' && top.kind !== 'search')) return
+    const rowPx = 18.5 * fit.s
+    const n = current.length
+    const first = Math.max(0, Math.min(Math.max(0, n - visible), d.top + Math.round(-dy / rowPx)))
+    if (first === top.top) return
+    scrolled.current++
+    setTop(s => {
+      if (s.kind !== 'list' && s.kind !== 'search') return s
+      // the highlight stays on screen as the list moves under it
+      let sel = Math.max(first, Math.min(first + visible - 1, s.sel))
+      if (current[sel]?.head) sel = Math.min(n - 1, sel + 1)
+      return { ...s, top: first, sel }
+    })
+  }
+  const onViewUp = (e: React.PointerEvent) => {
+    const d = pan.current
+    pan.current = null
+    if (!d) return
+    const dx = e.clientX - d.x, dy = e.clientY - d.y
+    if (dx > 55 && Math.abs(dx) > 2 * Math.abs(dy)) menu()   // a swipe to the right: back
+  }
+  const seekAt = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    if (tr.duration) tr.seek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * tr.duration)
+  }
 
   // ---------- drawing ----------
 
@@ -545,8 +718,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     <>
       <ul className="pod-list" style={all.length > n ? { marginRight: 5 } : undefined}>
         {all.slice(first, first + n).map((it, i) => (
-          <li key={first + i} className={(first + i === sel ? 'sel ' : '') + (it.more ? 'more ' : '') + (it.dim ? 'dim' : '')}
-            onClick={() => select(first + i)}>
+          <li key={first + i} className={it.head ? 'head' : (first + i === sel ? 'sel ' : '') + (it.more ? 'more ' : '') + (it.dim ? 'dim' : '')}
+            onClick={() => { if (!panned.current) select(first + i) }}>
             <span className="l">{it.label}</span>{it.right && <span className="r">{it.right}</span>}
           </li>
         ))}
@@ -561,7 +734,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     view = <>
       <form className="pod-search" onSubmit={e => { e.preventDefault(); runSearch(query) }}>
         <input ref={input} value={query} placeholder={t('searchPlaceholder')} enterKeyHint="search"
-          onChange={e => { setQuery(e.target.value); setResults(null) }} />
+          onChange={e => setQuery(e.target.value)} />
+        {query && <button type="button" className="pod-clear" aria-label={t('podClearSearches')} onClick={() => { setQuery(''); input.current?.focus() }}>✕</button>}
       </form>
       <div className="pod-under">{listView(current, top.sel, top.top, visible)}</div>
     </>
@@ -572,7 +746,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     const pct = showVol ? 100 * volume : tr.duration ? (100 * tr.time) / tr.duration : 0
     const preparing = song.status !== 'ready'
     view = (
-      <div className="pod-np">
+      <div className={'pod-np' + (screenH > SCREEN + 60 ? ' tall' : '')}>
         <div className="pos">{pos > 0 && `${pos} ${t('podOf')} ${q.ids.length}`}</div>
         <div className="modes">{q.shuffle ? '⤨ ' : ''}{q.repeat === 'one' ? '↻1' : q.repeat === 'all' ? '↻' : ''}{song.radio ? ' ✨' : ''}</div>
         <div className="row">
@@ -582,7 +756,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         {top.mode === 'lyrics'
           ? <div className="pod-lyric"><b>{lyricLine.now || (lyrics?.lines.length ? '♪' : t('noLyrics'))}</b><span>{lyricLine.next}</span></div>
           : <div className="progress">
-            <div className={'track' + (showVol ? ' vol' : '')}><i style={{ width: `${pct}%` }} /></div>
+            <div className={'track' + (showVol ? ' vol' : '')} onPointerDown={e => { e.stopPropagation(); if (!showVol) { e.currentTarget.setPointerCapture(e.pointerId); seekAt(e) } }}
+              onPointerMove={e => { if (e.buttons && !showVol) seekAt(e) }}><i style={{ width: `${pct}%` }} /></div>
             <div className="times">{preparing ? <span>{t('preparing')}</span> : showVol ? <span>{t('volume')}</span>
               : <><span>{fmt(tr.time)}</span>{top.mode === 'scrub' && <span>{t('podScrub')}</span>}<span>-{fmt(Math.max(0, tr.duration - tr.time))}</span></>}</div>
           </div>}
@@ -593,14 +768,15 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
   return (
     <div className={'pod-stage' + (fit.full ? ' pod-full' : '')}>
       <div className={'pod' + (black ? ' black' : '') + (fit.full ? ' pod-full' : '')} style={{ width: fit.w, height: fit.h, transform: fit.full ? `translateX(-50%) scale(${fit.s})` : `translate(-50%, -50%) scale(${fit.s})` }}>
-        <div className="pod-screen" style={{ height: SCREEN }}>
+        <div className="pod-screen" style={{ height: screenH }}>
           <div className="pod-bar">
             <span className="state">{song ? (tr.playing ? '▶' : '❚❚') : ''}</span>
             <span className="title">{busy ? `${t('preparing')}` : title}</span>
             <span className={'net' + (p.online ? '' : ' off')}>{p.online ? '' : '✈︎'}</span>
             <span className="battery"><i /></span>
           </div>
-          <div className="pod-view">{view}</div>
+          <div className="pod-view" onPointerDown={onViewDown} onPointerMove={onViewMove} onPointerUp={onViewUp}
+            onPointerCancel={() => { pan.current = null }}>{view}</div>
         </div>
         {tour !== null && (() => {
           // the lesson's card: in the gap between the screen and the wheel (over the screen's foot when there's none)
@@ -623,7 +799,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           )
         })()}
         <div className="pod-wheel" ref={wheel}
-          style={{ top: fit.full ? 16 + SCREEN + Math.max(20, (fit.h - 16 - SCREEN - WHEEL) / 2) : undefined }}
+          style={{ top: fit.full ? 16 + screenH + Math.max(20, (fit.h - 16 - screenH - WHEEL) / 2) : undefined }}
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onClick={onWheelClick} onPointerCancel={() => { drag.current = null }}>
           <span className="pod-label w-menu">MENU</span>
           <span className="pod-label w-prev">⏮︎</span>
