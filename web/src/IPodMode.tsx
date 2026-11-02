@@ -158,9 +158,8 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     { title: t('pt8Title'), body: t('pt8Body') },
     { title: t('pt9Title'), body: t('pt9Body') },
   ]
-  // a phone: the screen grows into the room above the wheel (more rows to read and touch); the lesson needs that room
-  const screenH = fit.full && tour === null ? Math.round(Math.max(SCREEN, Math.min(360, fit.h - 16 - WHEEL - 36))) : SCREEN
-  const rows = screenH === SCREEN ? ROWS : Math.floor((screenH - 18) / 18.5)
+  const screenH = SCREEN
+  const rows = ROWS
 
   // a phone becomes the iPod (its body fills the screen, the wheel centred below the 4:3 screen);
   // anything wider shows an iPod standing in the middle
@@ -519,21 +518,38 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
 
   // ---------- the wheel and buttons ----------
 
+  // where each row starts, in px (section titles are shorter)
+  const off = [0]
+  for (const it of current) off.push(off[off.length - 1] + (it.head ? 15 : 18.5))
+  // the list's glide: how far (px) it's drawn past its first row, eased back to 0
+  const [shift, setShift] = useState(0)
+  const anim = useRef(0)
+  const glide = (from: number, ms = 150) => {
+    cancelAnimationFrame(anim.current)
+    const t0 = performance.now()
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / ms)
+      setShift(from * (1 - k) ** 3)
+      if (k < 1) anim.current = requestAnimationFrame(step)
+    }
+    setShift(from)
+    anim.current = requestAnimationFrame(step)
+  }
+
   const setTop = (f: (s: Screen) => Screen) => setStack(st => [...st.slice(0, -1), f(st[st.length - 1])])
   function scroll(step: number) {
     scrolled.current++
     if (top.kind === 'list' || top.kind === 'search') {
       const n = current.length
-      let sel = Math.max(0, Math.min(n - 1, top.sel + step))
+      const lo = top.kind === 'search' ? -1 : 0   // (search's -1: the search bar)
+      let sel = Math.max(lo, Math.min(n - 1, top.sel + step))
       while (current[sel]?.head && sel > 0 && sel < n - 1) sel += Math.sign(step)   // (section titles aren't stops)
-      if (current[sel]?.head) sel = top.sel
+      if (current[sel]?.head) sel = lo < 0 && step < 0 ? -1 : top.sel
       if (sel === top.sel) return
       tick()
-      setTop(s => {
-        if (s.kind !== 'list' && s.kind !== 'search') return s
-        const topRow = sel < s.top ? sel : sel >= s.top + visible ? sel - visible + 1 : s.top
-        return { ...s, sel, top: topRow }
-      })
+      const topRow = Math.max(0, sel < top.top ? sel : sel >= top.top + visible ? sel - visible + 1 : top.top)
+      if (topRow !== top.top) glide(Math.max(-40, Math.min(40, off[top.top] + shift - off[topRow])))
+      setTop(s => (s.kind === 'list' || s.kind === 'search' ? { ...s, sel, top: topRow } : s))
     } else if (top.kind === 'now' && song) {
       tick()
       if (top.mode === 'volume') { setVolume(Math.max(0, Math.min(1, volume + step * 0.05))); setOverlay(Date.now() + 1500) }
@@ -544,6 +560,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     tick()
     if (top.kind === 'list' || top.kind === 'search') {
       const at = i ?? top.sel
+      if (at === -1) { input.current?.focus(); return }   // the search bar: type (in the click, so a phone's keyboard opens)
       if (current[at]?.head) return
       if (i !== undefined) setTop(s => (s.kind === 'list' || s.kind === 'search' ? { ...s, sel: at } : s))
       current[at]?.go?.()
@@ -657,45 +674,92 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     load().then(v => setRemote(m => ({ ...m, [key]: v })))
       .catch(() => { asked.current.delete(key); setRemote(m => ({ ...m, [key]: 'error' })) })
   }, [top])
-  // a new search's results start at their first row
+  // a new search's results start at their first row; nothing typed yet, at the search bar
   useEffect(() => {
     if (top.kind !== 'search') return
-    setStack(st => st.map((x, i) => (i === st.length - 1 && x.kind === 'search' ? { ...x, sel: current.findIndex(it => !it.head && !it.dim) > -1 ? current.findIndex(it => !it.head && !it.dim) : 0, top: 0 } : x)))
+    const first = current.findIndex(it => !it.head && !it.dim)
+    setStack(st => st.map((x, i) => (i === st.length - 1 && x.kind === 'search' ? { ...x, sel: query ? Math.max(0, first) : -1, top: 0 } : x)))
   }, [query, results, top.kind])
 
   // ---------- the screen by touch: drag to scroll, tap a row, swipe right for back; the progress bar seeks ----------
-  const pan = useRef<{ x: number; y: number; top: number; moved: boolean } | null>(null)
+  const pan = useRef<{ x: number; y: number; pos0: number; pos: number; moved: '' | 'v' | 'h'; t: number; v: number } | null>(null)
   const panned = useRef(false)
+  const slide = useRef({ depth: 1, dir: '' })
+  const [swipe, setSwipe] = useState(0)   // the screen following a finger swiping right (back)
+  const listy = top.kind === 'list' || top.kind === 'search'
+  // the list scrolled to pos (px): its first row, and the rest drawn as the glide (stretching past either end)
+  const placeAt = (pos: number) => {
+    const maxFirst = Math.max(0, current.length - visible), maxPos = off[maxFirst]
+    let first = 0, sh: number
+    if (pos < 0) sh = pos * 0.35
+    else if (pos > maxPos) { first = maxFirst; sh = (pos - maxPos) * 0.35 }
+    else { while (first < maxFirst && off[first + 1] <= pos) first++; sh = pos - off[first] }
+    setShift(sh)
+    setTop(s => {
+      if ((s.kind !== 'list' && s.kind !== 'search') || s.top === first) return s
+      scrolled.current++
+      // the highlight stays on screen as the list moves under it
+      let sel = Math.max(first, Math.min(first + visible - 1, s.sel))
+      if (current[sel]?.head) sel = Math.min(current.length - 1, sel + 1)
+      return { ...s, top: first, sel }
+    })
+    return { at: off[first] + sh, out: pos < 0 || pos > maxPos }
+  }
+  // let go: the list settles on the nearest row
+  const settle = (at: number) => {
+    const maxFirst = Math.max(0, current.length - visible)
+    let k = 0
+    for (let i = 0; i <= maxFirst; i++) if (Math.abs(off[i] - at) < Math.abs(off[k] - at)) k = i
+    setTop(s => (s.kind === 'list' || s.kind === 'search' ? { ...s, top: k, sel: Math.max(k, Math.min(k + visible - 1, s.sel)) } : s))
+    glide(at - off[k], 220)
+  }
   const onViewDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).tagName === 'INPUT') return
-    pan.current = { x: e.clientX, y: e.clientY, top: top.kind === 'list' || top.kind === 'search' ? top.top : 0, moved: false }
+    cancelAnimationFrame(anim.current)
+    const pos0 = listy ? off[top.top] + shift : 0
+    pan.current = { x: e.clientX, y: e.clientY, pos0, pos: pos0, moved: '', t: performance.now(), v: 0 }
     panned.current = false
   }
   const onViewMove = (e: React.PointerEvent) => {
     const d = pan.current
     if (!d) return
     const dx = e.clientX - d.x, dy = e.clientY - d.y
-    if (!d.moved && Math.hypot(dx, dy) > 7) { d.moved = true; panned.current = true; input.current?.blur() }
-    if (!d.moved || Math.abs(dy) < Math.abs(dx) || (top.kind !== 'list' && top.kind !== 'search')) return
-    const rowPx = 18.5 * fit.s
-    const n = current.length
-    const first = Math.max(0, Math.min(Math.max(0, n - visible), d.top + Math.round(-dy / rowPx)))
-    if (first === top.top) return
-    scrolled.current++
-    setTop(s => {
-      if (s.kind !== 'list' && s.kind !== 'search') return s
-      // the highlight stays on screen as the list moves under it
-      let sel = Math.max(first, Math.min(first + visible - 1, s.sel))
-      if (current[sel]?.head) sel = Math.min(n - 1, sel + 1)
-      return { ...s, top: first, sel }
-    })
+    if (!d.moved && Math.hypot(dx, dy) > 7) {
+      d.moved = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v'
+      panned.current = true
+      input.current?.blur()
+    }
+    if (d.moved === 'h') { if (stack.length > 1) setSwipe(Math.max(0, dx / fit.s)); return }
+    if (d.moved !== 'v' || !listy) return
+    const pos = d.pos0 - dy / fit.s, now = performance.now()
+    d.v = 0.8 * ((pos - d.pos) / Math.max(1, now - d.t)) + 0.2 * d.v   // px per ms, for the flick
+    d.pos = pos
+    d.t = now
+    placeAt(pos)
   }
   const onViewUp = (e: React.PointerEvent) => {
     const d = pan.current
     pan.current = null
     if (!d) return
-    const dx = e.clientX - d.x, dy = e.clientY - d.y
-    if (dx > 55 && Math.abs(dx) > 2 * Math.abs(dy)) menu()   // a swipe to the right: back
+    if (d.moved === 'h') {
+      setSwipe(0)
+      if ((e.clientX - d.x) / fit.s > 60) menu()   // swiped far enough right: back
+      return
+    }
+    if (d.moved !== 'v' || !listy) return
+    // a flick keeps the list going, slowing down, then it settles
+    let pos = d.pos, v = performance.now() - d.t > 80 ? 0 : d.v, last = performance.now()
+    if (Math.abs(v) < 0.2) { settle(placeAt(pos).at); return }
+    const fly = (now: number) => {
+      const dt = now - last
+      last = now
+      pos += v * dt
+      v *= 0.995 ** dt
+      const p = placeAt(pos)
+      if (p.out || Math.abs(v) < 0.03) settle(p.at)
+      else anim.current = requestAnimationFrame(fly)
+    }
+    anim.current = requestAnimationFrame(fly)
   }
   const seekAt = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -714,25 +778,29 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     return { now: lines[i]?.text ?? '', next: lines[i + 1]?.text ?? '' }
   })()
 
-  const listView = (all: Item[], sel: number, first: number, n: number) => (
-    <>
-      <ul className="pod-list" style={all.length > n ? { marginRight: 5 } : undefined}>
-        {all.slice(first, first + n).map((it, i) => (
-          <li key={first + i} className={it.head ? 'head' : (first + i === sel ? 'sel ' : '') + (it.more ? 'more ' : '') + (it.dim ? 'dim' : '')}
-            onClick={() => { if (!panned.current) select(first + i) }}>
+  const listView = (all: Item[], sel: number, first: number, n: number) => {
+    // a couple of rows either side, for the glide to show
+    const from = Math.max(0, first - 3)
+    return <>
+      <ul className="pod-list" style={{ marginRight: all.length > n ? 5 : undefined, transform: `translateY(${-(off[first] - off[from] + shift)}px)` }}>
+        {all.slice(from, first + n + 3).map((it, i) => (
+          <li key={from + i} className={it.head ? 'head' : (from + i === sel ? 'sel ' : '') + (it.more ? 'more ' : '') + (it.dim ? 'dim' : '')}
+            onClick={() => { if (!panned.current) select(from + i) }}>
             <span className="l">{it.label}</span>{it.right && <span className="r">{it.right}</span>}
           </li>
         ))}
       </ul>
-      {all.length > n && <div className="pod-scroll"><i style={{ top: `${(100 * first) / all.length}%`, height: `${(100 * n) / all.length}%` }} /></div>}
+      {all.length > n && <div className="pod-scroll"><i style={{ top: `${(100 * Math.max(0, off[first] + shift)) / off[all.length]}%`, height: `${(100 * n) / all.length}%` }} /></div>}
     </>
-  )
+  }
 
+  // a screen going in slides in from the right; going back, from the left
+  if (stack.length !== slide.current.depth) slide.current = { depth: stack.length, dir: stack.length > slide.current.depth ? 'push' : 'pop' }
   let view: React.ReactNode
   if (top.kind === 'list') view = listView(current, top.sel, top.top, rows)
   else if (top.kind === 'search') {
     view = <>
-      <form className="pod-search" onSubmit={e => { e.preventDefault(); runSearch(query) }}>
+      <form className={'pod-search' + (top.sel === -1 ? ' sel' : '')} onSubmit={e => { e.preventDefault(); input.current?.blur(); runSearch(query) }}>
         <input ref={input} value={query} placeholder={t('searchPlaceholder')} enterKeyHint="search"
           onChange={e => setQuery(e.target.value)} />
         {query && <button type="button" className="pod-clear" aria-label={t('podClearSearches')} onClick={() => { setQuery(''); input.current?.focus() }}>✕</button>}
@@ -746,7 +814,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     const pct = showVol ? 100 * volume : tr.duration ? (100 * tr.time) / tr.duration : 0
     const preparing = song.status !== 'ready'
     view = (
-      <div className={'pod-np' + (screenH > SCREEN + 60 ? ' tall' : '')}>
+      <div className="pod-np">
         <div className="pos">{pos > 0 && `${pos} ${t('podOf')} ${q.ids.length}`}</div>
         <div className="modes">{q.shuffle ? '⤨ ' : ''}{q.repeat === 'one' ? '↻1' : q.repeat === 'all' ? '↻' : ''}{song.radio ? ' ✨' : ''}</div>
         <div className="row">
@@ -776,7 +844,10 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
             <span className="battery"><i /></span>
           </div>
           <div className="pod-view" onPointerDown={onViewDown} onPointerMove={onViewMove} onPointerUp={onViewUp}
-            onPointerCancel={() => { pan.current = null }}>{view}</div>
+            onPointerCancel={() => { pan.current = null; setSwipe(0) }}>
+            <div key={stack.length} className={'pod-pane ' + slide.current.dir + (pan.current?.moved === 'h' ? ' held' : '')}
+              style={swipe ? { transform: `translateX(${swipe}px)` } : undefined}>{view}</div>
+          </div>
         </div>
         {tour !== null && (() => {
           // the lesson's card: in the gap between the screen and the wheel (over the screen's foot when there's none)

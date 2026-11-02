@@ -1191,10 +1191,14 @@ input.pl-name { padding: 0 4px; height: 32px; border: 1px solid #7aa7e8; border-
   border-radius: 50%; background: #a9b0ba; color: #fff; font-size: 8px; line-height: 14px; box-shadow: none; text-shadow: none; }
 .pod-np .progress .track { cursor: pointer; touch-action: none; }
 .pod-np .progress .track::before { content: ""; position: absolute; inset: -8px 0; }   /* a bigger target for a finger */
-/* the taller phone screen: Now Playing like the iPhone's, the cover big over the song */
-.pod-np.tall .row { flex-direction: column; align-items: center; gap: 8px; margin-top: 6px; }
-.pod-np.tall .art { width: 150px; height: 150px; }
-.pod-np.tall .meta { align-items: center; text-align: center; padding-top: 0; max-width: 100%; }
-.pod-np.tall .meta b { font-size: 14px; }
-.pod-np.tall .meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
-.pod-np.tall .meta { margin-top: 30px; }   /* below the cover's reflection */
+
+/* iPod screens: slide in and out, follow a swiping finger, glide when scrolled */
+.pod-pane { position: absolute; inset: 0; transition: transform .2s ease-out; }
+.pod-pane.held { transition: none; }
+.pod-pane.push { animation: pod-in-right .22s ease-out; }
+.pod-pane.pop { animation: pod-in-left .22s ease-out; }
+@keyframes pod-in-right { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes pod-in-left { from { transform: translateX(-100%); } to { transform: none; } }
+.pod-under { overflow: hidden; }
+.pod-list { will-change: transform; }
+.pod-search.sel input { border-color: #3b7ad8; box-shadow: 0 0 0 2px rgba(59, 122, 216, .45); }
