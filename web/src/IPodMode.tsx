@@ -412,17 +412,17 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
         { label: t('podLanguage'), right: getLang() === 'zh' ? '中文' : 'English', go: () => { setLang(getLang() === 'zh' ? 'en' : 'zh'); rerender() } },
         { label: t('podColour'), right: black ? t('podBlack') : t('podSilver'), go: () => setBlack(b => !b) },
         { label: t('podAbout'), more: true, go: () => list('about', t('podAbout')) },
-        { label: t('tourTitle'), go: () => { setStack(st => st.slice(0, 1)); setTour(0) } },
-        { label: t('podFullSite'), go: p.exit },
-        { label: 'Audio test', go: p.audioTest },
-        { label: t('logout'), go: p.onLogout },
       ]
       case 'about': return [
-        { label: p.user.name, dim: true },
+        { label: p.user.name, right: t('podAccount'), more: true, go: () => list('account', p.user.name) },
         { label: t('podSongs'), right: String(p.library.length), dim: true },
         { label: t('thisDevice'), right: String(p.saved.size), dim: true },
-        { label: p.online ? t('podOnline') : t('podOffline'), dim: true },
-        { label: 'music.sunnygong.com', dim: true },
+        { label: t('tourTitle'), go: () => { setStack(st => st.slice(0, 1)); setTour(0) } },
+        { label: 'music.sunnygong.com', more: true, go: p.exit },   // the full site
+      ]
+      case 'account': return [
+        { label: p.user.name, right: p.user.is_admin ? t('podAdmin') : '', dim: true },
+        { label: t('logout'), go: p.onLogout },
       ]
     }
     return []
@@ -542,10 +542,11 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     if (top.kind === 'list' || top.kind === 'search') {
       const n = current.length
       const lo = top.kind === 'search' ? -1 : 0   // (search's -1: the search bar)
-      let sel = Math.max(lo, Math.min(n - 1, top.sel + step))
-      while (current[sel]?.head && sel > 0 && sel < n - 1) sel += Math.sign(step)   // (section titles aren't stops)
-      if (current[sel]?.head) sel = lo < 0 && step < 0 ? -1 : top.sel
+      let sel = top.sel + step
+      while (sel >= 0 && sel < n && current[sel].head) sel += Math.sign(step)   // (section titles aren't stops)
+      if (sel >= n || sel < lo) sel = lo < 0 && sel < lo ? -1 : top.sel
       if (sel === top.sel) return
+      if (top.kind === 'search') input.current?.blur()   // turning the wheel: the keyboard goes, the list scrolls
       tick()
       const topRow = Math.max(0, sel < top.top ? sel : sel >= top.top + visible ? sel - visible + 1 : top.top)
       if (topRow !== top.top) glide(Math.max(-40, Math.min(40, off[top.top] + shift - off[topRow])))
