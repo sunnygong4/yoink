@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, type Album, type Artist, type CatalogResults, type CatalogSong, type Lyrics, type Song, type Source, type Upload, type User } from './api'
+import { api, type Album, type Artist, type CatalogResults, type CatalogSong, type Lyrics, type PlaylistSummary, type Song, type Source, type Upload, type User } from './api'
 import { albumPage } from './Pages'
+import { freshName } from './Playlists'
 import { uploadSong } from './Rows'
 import { getQuality, type Quality, setQuality } from './quality'
 import { getLang, setLang, t } from './i18n'
@@ -129,6 +130,9 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     return null
   }
   const [picks, setPicks] = useState<CatalogSong[] | null>(null)
+  // playlists: the list of them, and each one's songs (loaded as their screens open)
+  const [lists, setLists] = useState<PlaylistSummary[] | 'error' | null>(null)
+  const [plSongs, setPlSongs] = useState<Record<string, string[] | 'error'>>({})
   const [added, setAdded] = useState<Record<string, string>>({})   // catalog key -> library id
   const [busy, setBusy] = useState('')                             // what's being fetched (shown on screen)
   const [overlay, setOverlay] = useState(0)                        // volume shown until
@@ -235,6 +239,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
       ]
       case 'music': return [
         { label: t('podRecent'), more: true, go: () => list('recent', t('podRecent')) },
+        { label: t('playlistsHeading'), more: true, dim: !p.online, go: () => p.online && list('playlists', t('playlistsHeading')) },
         { label: t('podArtists'), more: true, go: () => list('artists', t('podArtists')) },
         { label: t('podAlbums'), more: true, go: () => list('albums', t('podAlbums')) },
         { label: t('podSongs'), more: true, go: () => list('songs', t('podSongs')) },
@@ -314,6 +319,39 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           ...al.tracks.map(c => ({ ...catalogItem(c), right: libFor(c) ? '✓' : fmt(c.duration || 0) })),
         ]
       }
+      case 'playlists': case 'addTo': {   // the playlists; or, for a song, where to put it
+        const adding = s.id === 'addTo' ? p.library.find(x => x.id === s.arg) : undefined
+        const head = [{ label: `+ ${t('newPlaylist')}`, go: () => newPlaylist(adding) }]
+        if (!lists) return [...head, { label: t('forYouLoading'), dim: true }]
+        if (lists === 'error') return [...head, { label: t('podError'), dim: true }]
+        return [...head, ...lists.map(l => ({
+          label: l.name, right: String(l.songs), more: !adding,
+          go: () => (adding ? addTo(l, adding) : list('playlist', l.name, String(l.id))),
+        }))]
+      }
+      case 'playlist': {
+        const ids = plSongs[s.arg!]
+        if (!ids) return [{ label: t('forYouLoading'), dim: true }]
+        if (ids === 'error') return [{ label: t('podError'), dim: true }]
+        const songs = ids.map(id => pool.find(x => x.id === id)).filter((x): x is Song => !!x)
+        const name = s.title
+        return [
+          ...(songs.length ? [
+            { label: t('podPlayAll'), go: () => playList(songs, 0) },
+            { label: t('podShuffleSongs'), go: () => { if (!q.shuffle) q.toggleShuffle(); playList(songs, Math.floor(Math.random() * songs.length)) } },
+          ] : [{ label: t('podPlaylistEmpty'), dim: true }]),
+          ...songs.map((x, i) => ({ label: x.title, right: mainArtist(x), go: () => playList(songs, i) })),
+          { label: t('rename'), go: () => renamePlaylist(Number(s.arg), name) },
+          { label: t('deletePlaylist'), more: true, go: () => list('deletePlaylist', name, s.arg) },
+        ]
+      }
+      case 'deletePlaylist': return [
+        { label: t('podCancel'), go: () => setStack(st => st.slice(0, -1)) },
+        { label: t('deletePlaylist'), right: s.title, go: async () => {
+          try { await api.deletePlaylist(Number(s.arg)); setStack(st => st.slice(0, -2)); loadLists() }
+          catch (e) { message(t('podError'), (e as Error).message) }
+        } },
+      ]
       case 'picks': return [
         { label: `↻ ${t('forYouMore')}`, go: () => loadPicks(true) },
         ...(!picks ? [{ label: t('forYouLoading'), dim: true }] : !picks.length ? [{ label: t('forYouEmpty'), dim: true }] : picks.map(catalogItem)),
@@ -325,6 +363,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           { label: `▶ ${t('play')}`, go: () => playCatalog(c) },
           mine ? { label: `✓ ${t('inLibraryShort')}`, dim: true } : { label: `+ ${t('addToLibrary')}`, go: () => addCatalog(c) },
           ...(mine?.status === 'ready' && !p.saved.has(mine.id) ? [{ label: t('podSaveThis'), go: () => save([mine]) }] : []),
+          ...(mine && !mine.radio ? [{ label: t('addToPlaylist'), more: true, go: () => list('addTo', t('addToPlaylist'), mine.id) }] : []),
           { label: c.artist, more: true, dim: true },
           ...(c.album ? [{ label: c.album, dim: true }] : []),
         ]
@@ -394,6 +433,7 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
           setQuality(next); setQ(next)
         } },
           ...(song.radio ? [{ label: `♥ ${t('keep')}`, go: () => api.keep(song.id).then(p.onSong) }] : []),
+          ...(!song.radio && p.online ? [{ label: t('addToPlaylist'), more: true, go: () => list('addTo', t('addToPlaylist'), song.id) }] : []),
           ...(nextSong ? [{ label: t('podUpNext'), right: nextSong.title, dim: true }] : []),
           { label: t('podCancel'), go: () => setStack(st => st.slice(0, -1)) },
         ]
@@ -427,6 +467,43 @@ export default function IPodMode({ q, tr, song, lyrics, volume, setVolume, reren
     }
     return []
   }
+
+  const loadLists = () => api.playlists().then(setLists).catch(() => setLists(l => l ?? 'error'))
+  const loadPlaylist = (id: string) => api.playlist(Number(id))
+    .then(pl => setPlSongs(m => ({ ...m, [id]: pl.songs.map(x => x.id) })))
+    .catch(() => setPlSongs(m => ({ ...m, [id]: m[id] ?? 'error' })))
+  async function newPlaylist(song?: Song) {
+    const name = prompt(t('newPlaylistAsk'), freshName(Array.isArray(lists) ? lists : []))?.trim()
+    if (!name) return
+    try {
+      const l = await api.createPlaylist(name)
+      if (song) await addTo(l, song)
+      else loadLists()
+    } catch (e) { message(t('podError'), (e as Error).message) }
+  }
+  async function addTo(l: PlaylistSummary, x: Song) {
+    try {
+      await api.addToPlaylist(l.id, [x.id])
+      loadLists()
+      setPlSongs(m => { const n = { ...m }; delete n[String(l.id)]; return n })
+      setStack(st => [...st.slice(0, -1), { kind: 'message', title: t('addToPlaylist'), text: t('addedToPlaylist', { name: l.name }) }])
+    } catch (e) { message(t('podError'), (e as Error).message) }
+  }
+  async function renamePlaylist(id: number, old: string) {
+    const name = prompt(t('rename'), old)?.trim()
+    if (!name || name === old) return
+    try {
+      await api.renamePlaylist(id, name)
+      setStack(st => st.map(x => (x.kind === 'list' && x.id === 'playlist' && x.arg === String(id) ? { ...x, title: name } : x)))
+      loadLists()
+    } catch (e) { message(t('podError'), (e as Error).message) }
+  }
+  // a playlists screen opening: fresh from the server
+  useEffect(() => {
+    if (top.kind !== 'list') return
+    if (top.id === 'playlists' || top.id === 'addTo') loadLists()
+    if (top.id === 'playlist' && top.arg) loadPlaylist(top.arg)
+  }, [top.kind === 'list' ? `${top.id}:${top.arg}` : ''])
 
   const loadPicks = useCallback((fresh: boolean) => {
     setPicks(null)
