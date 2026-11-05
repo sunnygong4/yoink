@@ -15,7 +15,10 @@ export type Actions = {
   // ▶ on a song that isn't in the library: just listen (how: now, next, or at the end of the queue)
   preview: (s: CatalogSong, how?: How) => Promise<void>
   listen: (r: Source, how?: How) => Promise<void>         // the same, for an upload found on YouTube
+  // an album, in order from a track: the ones not in the library fetched one at a time, each while the one before plays
+  playAlbum?: (tracks: AlbumTrack[], from?: number) => void
 }
+export type AlbumTrack = { track: CatalogSong; id?: string }   // id: the library's copy, ready to play
 
 export type How = 'now' | 'next' | 'end'
 

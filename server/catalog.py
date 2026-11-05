@@ -6,6 +6,7 @@ pick_source() finds the YouTube/Bilibili upload that best matches it.
 """
 import concurrent.futures
 import re
+import unicodedata
 import threading
 import time
 
@@ -326,6 +327,12 @@ def is_track(r: dict, song: dict) -> bool:
         and same_length(r["duration"], song.get("duration"), slack=6)
 
 
+def _words(s: str) -> set[str]:
+    """A title's words that say which piece it is (accents off; "in", "et", numbering like "III.iv" left out)."""
+    s = unicodedata.normalize("NFKD", s.lower())
+    return {w for w in re.findall(r"[^\W_]+", "".join(c for c in s if not unicodedata.combining(c))) if len(w) > 2 and not re.fullmatch(r"[ivxl]+", w)}
+
+
 def candidates(song: dict, where: str = "youtube") -> list[dict]:
     """Uploads of this song, best first (what "单独选取" shows): official tracks, then videos."""
     if where == "youtube":
@@ -342,9 +349,17 @@ def candidates(song: dict, where: str = "youtube") -> list[dict]:
     videos = se.search(f"{song['artist']} {song['title']}", where)
     want_live = bool(re.search(r"live|現場|现场", song["title"], re.I))
 
+    want_words = _words(song["title"])
+    movement = _words(song["title"].rsplit(":", 1)[-1])   # "Credo: III.iv. Et incarnatus est" -> its own name
+
     def score(i: int, r: dict) -> float:
         tags = set(r["tags"])
         s = 4.0 if matches(r, song["artist"], song["title"]) else 0.0
+        # classical records credit someone else (the soloist's Topic channel, not "Orchestra, Choir & Conductor") and word
+        # the movement their own way: the title's words all there, at the record's exact length, on a Topic channel
+        if not s and "topic" in tags and len(want_words) >= 2 and song.get("duration") and r.get("duration")                 and abs(r["duration"] - song["duration"]) <= 2                 and (len(want_words & _words(r["title"])) >= 0.8 * len(want_words)
+                     or len(movement) >= 2 and movement <= _words(r["title"])):
+            s = 4.0
         if {"cover", "karaoke"} & tags or ("live" in tags and not want_live):
             s -= 6
         if _MANGLED.search(r["title"]):

@@ -356,17 +356,16 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, onSong, ...
   const lib = (r: Album['tracks'][number]) => byId.get(added[r.key] || r.song_id || '')
   const playable = al.tracks.map(lib).filter((s): s is Song => !!s && s.status === 'ready')
   const minutes = Math.round(al.tracks.reduce((n, x) => n + (x.duration || 0), 0) / 60)
-  const playFrom = (id: string) => actions.play(playable.map(s => s.id), Math.max(0, playable.findIndex(s => s.id === id)))
+  // from a track to the album's end; tracks not in the library come as they're fetched
+  const playFrom = (i: number) => {
+    if (!actions.playAlbum) return
+    actions.playAlbum(al.tracks.map(r => { const s = lib(r); return { track: r, id: s?.status === 'ready' ? s.id : undefined } }), i)
+  }
   const discs = new Set(al.tracks.map(r => r.disc || 1)).size > 1
 
   async function quick(r: Album['tracks'][number]) {
     setBusy(r.key)
     try { const song = await api.quick(r); setAdded(x => ({ ...x, [r.key]: song.id })) } catch (e) { alert((e as Error).message) }
-    setBusy(null)
-  }
-  async function listen(r: Album['tracks'][number]) {
-    setBusy(`p${r.key}`)
-    try { await actions.preview(r) } catch (e) { alert((e as Error).message) }
     setBusy(null)
   }
   // your own files for the tracks no upload was found for (a NetEase album: the score of a film...): each one named
@@ -414,8 +413,8 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, onSong, ...
         </p>
         <p className="ia-meta">{t('albumStats', { n: al.tracks.length, m: minutes })}</p>
         <div className="ia-buttons">
-          <button disabled={!playable.length} onClick={() => actions.play(playable.map(s => s.id))}>
-            <I.Play size={11} /> {t('playAlbum', { n: playable.length })}
+          <button onClick={() => playFrom(0)} title={playable.length < al.tracks.length ? t('playAlbumHint') : undefined}>
+            <I.Play size={11} /> {playable.length === al.tracks.length ? t('playAlbum', { n: playable.length }) : t('play')}
           </button>
           {playable.length < al.tracks.length && (
             <button onClick={addAll}><I.Plus size={11} /> {t('addAlbum')}</button>
@@ -445,7 +444,7 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, onSong, ...
             return [
               showDisc && <li key={`d${r.disc}`} className="ia-disc">{t('disc', { n: r.disc || 1 })}</li>,
               <li key={r.key + i} className={'ia-track' + (song && song.id === currentId ? ' now' : '') + (song ? ' have' : '')}
-                onDoubleClick={() => ok && playFrom(song!.id)}>
+                onDoubleClick={() => playFrom(i)}>
                 <span className="ia-no">{song && song.id === currentId ? <I.Volume size={12} /> : r.track}</span>
                 <span className="ia-name">
                   {r.title}
@@ -456,7 +455,7 @@ export function AlbumPage({ pageKey, albumId, byId, currentId, open, onSong, ...
                 <span className="ia-act">
                   {/* white ▶: on the server already; blue: fetched first (just to listen) */}
                   <button className={'ia-link' + (ok || r.instant ? '' : ' fetch')} disabled={busy === `p${r.key}`}
-                    onClick={() => (ok ? playFrom(song!.id) : listen(r))} title={ok || r.instant ? t('playHint') : t('previewHint')}>
+                    onClick={() => playFrom(i)} title={ok || r.instant ? t('playHint') : t('previewHint')}>
                     {busy === `p${r.key}` ? '…' : <><I.Play size={9} /> {t('play')}</>}
                   </button>
                   <QueueButton cls="ia-link" run={how => (ok ? (how === 'next' ? actions.playNext : actions.enqueue)(song!.id) : actions.preview(r, how))} />

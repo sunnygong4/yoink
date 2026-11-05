@@ -16,6 +16,7 @@ import Player from './Player'
 import { useIPod } from './ipod'
 import { canSave, useLocalDevice, useOnline } from './offline'
 import { useQueue } from './queue'
+import type { AlbumTrack } from './Rows'
 import { ClassicalHome, ComposerPage, ScoresPage, WorkPage } from './Classical'
 import { AddToPlaylist, freshName, PlaylistPage, SONG_DRAG } from './Playlists'
 import { type Actions, CatalogRow, type How, LocalRow, SongStatus, uploadSong, UploadRow } from './Rows'
@@ -137,7 +138,38 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
     onSong(s)
     ;(how === 'next' ? q.playNext : how === 'end' ? q.enqueue : q.playNow)(s.id)
   }, [onSong, q])
-  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview, listen }
+  // ▶ on an album: its tracks in order, from this one. Those not in the library are fetched one after another,
+  // each when the one before has downloaded, so the album plays on while the rest come in. Playing something else stops it.
+  const known = useRef(byId)
+  known.current = byId
+  const queueNow = useRef(q.current)
+  queueNow.current = q.current
+  const albumRun = useRef(0)
+  const playAlbum = useCallback(async (tracks: AlbumTrack[], from = 0) => {
+    const run = ++albumRun.current
+    const ids: string[] = []
+    const live = () => albumRun.current === run && (!ids.length || ids.includes(queueNow.current ?? ''))
+    for (const { track, id: have } of tracks.slice(from)) {
+      if (!live()) return
+      let id = have
+      if (!id) {
+        try { const s = await api.preview(track); onSong(s); id = s.id }
+        catch (e) { if (!ids.length && from === tracks.length - 1) alert((e as Error).message); continue }
+        if (!live()) return
+      }
+      if (ids.length) q.enqueue(id)
+      else { q.play([id]); queueNow.current = id }   // (before the next render says so)
+      ids.push(id)
+      // the next one waits until this one's downloaded (or a few minutes, or the album's stopped)
+      for (let waited = 0; waited < 240 && live(); waited++) {
+        const st = known.current.get(id)?.status
+        if (st === 'ready' || st === 'error') break
+        await new Promise(r => setTimeout(r, 1000))
+        if (waited % 4 === 3) refresh()   // (a song fetched just to listen doesn't always come with a live update)
+      }
+    }
+  }, [onSong, q, refresh])
+  const actions = { play: q.play, playNext: q.playNext, enqueue: q.enqueue, preview, listen, playAlbum }
   const common = { ...actions, byId, library, currentId: q.current, open }
 
   // ---------- the first-run tutorial (everyone does it once; ? in the sidebar plays it again) ----------
