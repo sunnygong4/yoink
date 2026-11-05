@@ -255,6 +255,7 @@ export const api = {
   migrateStatus: () => call<MigrateJob | null>('/api/migrate'),
   // the Classical catalog (IMSLP), and the scores each person keeps
   classical: () => call<{ composers: ComposerPage[] }>('/api/classical'),
+  classicalGenres: (name: string) => call<Record<string, string[]>>(`/api/classical/genres?${new URLSearchParams({ name })}`),
   classicalSearch: (q: string) => call<{ composers: ComposerPage[]; works: ClassicalWork[] }>(`/api/classical/search?${new URLSearchParams({ q })}`),
   composer: (name: string) => call<ComposerPage & { extract: string | null; works: ClassicalWork[]; imslp: string }>(
     `/api/classical/composer?${new URLSearchParams({ name })}`),

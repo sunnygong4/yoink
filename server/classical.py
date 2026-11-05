@@ -7,6 +7,7 @@ files. Scores are opened on IMSLP's own file pages (they show the copyright noti
 seconds before a download): Yoinker lists and saves them, it doesn't take the PDFs.
 """
 import re
+from concurrent.futures import ThreadPoolExecutor
 import time
 from urllib.parse import quote
 
@@ -22,7 +23,7 @@ WIKI = "https://imslp.org/wiki/"
 HEADERS = {"User-Agent": "Yoinker/1.0 (https://music.sunnygong.com; private music library)"}
 _client = httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True)
 pages.TTL.update({"imslp-composer": 7 * 24 * 3600, "imslp-work": 7 * 24 * 3600, "imslp-search": 24 * 3600,
-                  "imslp-wiki": 30 * 24 * 3600})
+                  "imslp-bio": 30 * 24 * 3600, "imslp-genres": 7 * 24 * 3600})
 
 conn().executescript("""
 create table if not exists user_scores (
@@ -69,24 +70,31 @@ def _api(**params) -> dict:
 # ---------- composers ----------
 
 def _wiki(category: str, lang: str) -> dict:
-    """The composer's photo and a line about them, from Wikipedia (Chinese Wikipedia's when reading in Chinese)."""
+    """The composer's photo and a line about them, from Wikipedia: the English article on them, and in Chinese
+    the Chinese article it links to (looking a Chinese name up by itself finds the wrong 福雷: a town in Belgium)."""
+    def summary(wl: str, title: str) -> dict:
+        try:
+            s = _client.get(f"https://{wl}.wikipedia.org/api/rest_v1/page/summary/{quote(title.replace(' ', '_'))}",
+                            headers={"Accept-Language": "zh-cn"} if wl == "zh" else {}).json()
+        except (httpx.HTTPError, ValueError):
+            return {}
+        return {} if s.get("type") in ("disambiguation", None) else s
+
     def make():
-        out = {"image": None, "extract": None}
-        tries = [("zh", ZH[category])] if lang == "zh" and category in ZH else []
-        tries.append(("en", display(category)))
-        for wl, title in tries:
+        en = summary("en", display(category))
+        out = {"image": (en.get("thumbnail") or {}).get("source"), "extract": en.get("extract")}
+        if lang == "zh" and en.get("title"):
             try:
-                s = _client.get(f"https://{wl}.wikipedia.org/api/rest_v1/page/summary/{quote(title.replace(' ', '_'))}").json()
-            except (httpx.HTTPError, ValueError):
-                continue
-            if s.get("type") == "disambiguation":
-                continue
-            out["image"] = out["image"] or (s.get("thumbnail") or {}).get("source")
-            out["extract"] = out["extract"] or s.get("extract")
-            if out["image"] and out["extract"]:
-                break
+                r = _client.get("https://en.wikipedia.org/w/api.php", params={
+                    "action": "query", "prop": "langlinks", "lllang": "zh", "titles": en["title"], "format": "json"}).json()
+                link = next(iter(r["query"]["pages"].values())).get("langlinks", [{}])[0].get("*")
+            except (httpx.HTTPError, ValueError, KeyError, StopIteration):
+                link = None
+            zs = summary("zh", link) if link else {}
+            if zs.get("extract"):
+                out = {"image": out["image"] or (zs.get("thumbnail") or {}).get("source"), "extract": zs["extract"]}
         return out
-    return pages._cached(("imslp-wiki", category, lang), make)
+    return pages._cached(("imslp-bio", category, lang), make)
 
 
 def featured(lang: str) -> list[dict]:
@@ -133,6 +141,52 @@ def composer(category: str, lang: str) -> dict:
     works = sorted(works, key=lambda w: (_catalogue(w["name"])[1:], w["name"].casefold()))
     return {"category": category, "name": display(category), "zh": ZH.get(category), **_wiki(category, lang),
             "works": works, "imslp": WIKI + quote(f"Category:{category}".replace(" ", "_"))}
+
+
+# IMSLP's genre categories a work page carries -> the genre it's shown under (several genres can fold into one)
+GENRES = {
+    "Operas": "opera", "Operettas": "opera", "Singspiels": "opera", "Zarzuelas": "opera",
+    "Ballets": "ballet", "Incidental music": "stage",
+    "Symphonies": "symphony", "Symphonic poems": "symphonic-poem", "Overtures": "overture", "Concertos": "concerto",
+    "Suites": "suite", "Serenades": "serenade", "Divertimentos": "serenade",
+    "Sonatas": "sonata", "Partitas": "suite", "Variations": "variations",
+    "Quartets": "chamber", "Trios": "chamber", "Quintets": "chamber", "Sextets": "chamber", "Septets": "chamber", "Octets": "chamber",
+    "Masses": "mass", "Requiems": "mass", "Cantatas": "cantata", "Oratorios": "oratorio", "Passions": "oratorio",
+    "Motets": "sacred", "Psalms": "sacred", "Hymns": "sacred", "Anthems": "sacred", "Magnificats": "sacred", "Chorales": "chorale",
+    "Chorale preludes": "chorale-prelude", "Songs": "song", "Madrigals": "song", "Arias": "aria",
+    "Preludes": "prelude", "Fugues": "fugue", "Toccatas": "toccata", "Fantasias": "fantasia", "Inventions": "invention", "Canons": "canon",
+    "Etudes": "etude", "Nocturnes": "nocturne", "Waltzes": "waltz", "Mazurkas": "mazurka", "Polonaises": "polonaise",
+    "Ballades": "ballade", "Scherzos": "scherzo", "Impromptus": "impromptu", "Rhapsodies": "rhapsody", "Romances": "romance",
+    "Marches": "march", "Dances": "dance", "Minuets": "dance", "Rondos": "rondo",
+}
+
+
+def genres(category: str) -> dict[str, list[str]]:
+    """Each of a composer's works -> its genres (IMSLP's categories on the work pages, 50 pages a request)."""
+    def make():
+        hit = pages._cache_get(("imslp-composer", category))
+        if not hit:
+            composer(category, "en")   # (its works first)
+            hit = pages._cache_get(("imslp-composer", category))
+        titles = [w["page"] for w in hit[1]]
+        out: dict[str, set[str]] = {}
+        want = "|".join("Category:" + g for g in GENRES)
+
+        def batch(chunk: list[str]):
+            cont: dict = {}
+            for _ in range(10):
+                r = _api(action="query", prop="categories", titles="|".join(chunk), clcategories=want, cllimit=500, **cont)
+                for pg in ((r.get("query") or {}).get("pages") or {}).values():
+                    for c in pg.get("categories") or []:
+                        out.setdefault(pg["title"], set()).add(GENRES[c["title"][9:]])
+                cont = ((r.get("query-continue") or {}).get("categories") or {}) or {
+                    k: v for k, v in (r.get("continue") or {}).items() if k != "continue"}
+                if not cont:
+                    return
+        with ThreadPoolExecutor(6) as ex:
+            list(ex.map(batch, [titles[i:i + 50] for i in range(0, len(titles), 50)]))
+        return {t: sorted(g) for t, g in out.items()}
+    return pages._cached(("imslp-genres", category), make)
 
 
 def search(q: str) -> dict:

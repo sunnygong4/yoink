@@ -591,6 +591,11 @@ def classical_composer(name: str, req: Request, _=Depends(auth.current_user)):
     return classical.composer(name, i18n.lang_of(req.headers))
 
 
+@app.get("/api/classical/genres")
+def classical_genres(name: str, _=Depends(auth.current_user)):
+    return classical.genres(name)
+
+
 @app.get("/api/classical/work")
 def classical_work(page: str, _=Depends(auth.current_user)):
     return classical.work(page)

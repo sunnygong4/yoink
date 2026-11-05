@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, type ClassicalWork, type ComposerPage as Composer, type SavedScore, type ScoreEdition } from './api'
+import { api, type CatalogSong, type ClassicalWork, type ComposerPage as Composer, type SavedScore, type ScoreEdition } from './api'
 import { getLang, t } from './i18n'
 import * as I from './icons'
 import type { Page } from './Pages'
@@ -13,6 +13,21 @@ const INFO_ZH: Record<string, string> = {
   'Year/Date of Composition': '创作年代', 'Year of First Publication': '首次出版', 'First Performance': '首演',
   'Dedication': '题献', 'Librettist': '脚本', 'Language': '语言', 'Piece Style': '风格', 'Instrumentation': '编制',
 }
+// the genres works are grouped by (from IMSLP's categories), in English and Chinese
+const GENRE: Record<string, [string, string]> = {
+  opera: ['Operas', '歌剧'], ballet: ['Ballets', '芭蕾'], stage: ['Stage music', '戏剧配乐'], symphony: ['Symphonies', '交响曲'],
+  'symphonic-poem': ['Symphonic poems', '交响诗'], overture: ['Overtures', '序曲'], concerto: ['Concertos', '协奏曲'],
+  suite: ['Suites & partitas', '组曲'], serenade: ['Serenades', '小夜曲'], sonata: ['Sonatas', '奏鸣曲'], variations: ['Variations', '变奏曲'],
+  chamber: ['Chamber music', '室内乐'], mass: ['Masses & requiems', '弥撒 / 安魂曲'], cantata: ['Cantatas', '康塔塔'],
+  oratorio: ['Oratorios & passions', '清唱剧 / 受难曲'], sacred: ['Sacred music', '宗教音乐'], chorale: ['Chorales', '众赞歌'],
+  'chorale-prelude': ['Chorale preludes', '众赞歌前奏曲'], song: ['Songs', '歌曲'], aria: ['Arias', '咏叹调'],
+  prelude: ['Preludes', '前奏曲'], fugue: ['Fugues', '赋格'], toccata: ['Toccatas', '托卡塔'], fantasia: ['Fantasias', '幻想曲'],
+  invention: ['Inventions', '创意曲'], canon: ['Canons', '卡农'], etude: ['Études', '练习曲'], nocturne: ['Nocturnes', '夜曲'],
+  waltz: ['Waltzes', '圆舞曲'], mazurka: ['Mazurkas', '玛祖卡'], polonaise: ['Polonaises', '波兰舞曲'], ballade: ['Ballades', '叙事曲'],
+  scherzo: ['Scherzos', '谐谑曲'], impromptu: ['Impromptus', '即兴曲'], rhapsody: ['Rhapsodies', '狂想曲'], romance: ['Romances', '浪漫曲'],
+  march: ['Marches', '进行曲'], dance: ['Dances', '舞曲'], rondo: ['Rondos', '回旋曲'],
+}
+const genreLabel = (g: string) => (GENRE[g] ? GENRE[g][getLang() === 'zh' ? 1 : 0] : g)
 const infoLabel = (k: string) => (getLang() === 'zh' ? INFO_ZH[k] ?? k : k)
 
 const composerName = (c: { name: string; zh?: string | null }) => (getLang() === 'zh' && c.zh ? `${c.zh} · ${c.name}` : c.name)
@@ -114,13 +129,54 @@ export function ClassicalHome({ open }: { open: (p: Page) => void }) {
   )
 }
 
-export function ComposerPage({ name, open }: { name: string; open: (p: Page) => void }) {
+// a work's name to search recordings by: without IMSLP's (Composer, Name) tail
+const shortName = (name: string) => name.replace(/\s*\([^)]*\)\s*$/, '')
+// the words that say which work a recording is (catalogue numbers, titles), for telling a real match from a near one
+const words = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').split(/[^\p{L}\p{N}]+/u).filter(x => x.length > 2)
+
+// 随机播放: random works of this composer (the ones the filter shows), each as a recording from the catalog;
+// the first plays now, a few more go in the queue behind it
+async function shuffleWorks(composer: string, works: ClassicalWork[], preview: (c: CatalogSong, how: 'now' | 'end') => Promise<void>, started: () => void) {
+  const pool = [...works].sort(() => Math.random() - 0.5)
+  let played = 0
+  const recording = async (w: ClassicalWork) => {
+    const name = shortName(w.name)
+    const found = await api.catalog(`${composer} ${name}`).catch(() => null)
+    const want = new Set(words(name))
+    return found?.songs.find(x => words(`${x.title} ${x.album ?? ''}`).some(k => want.has(k)))
+  }
+  // a few works looked up at once (most have a recording; some don't)
+  for (let i = 0; i < 16 && played < 5; i += 4) {
+    for (const hit of await Promise.all(pool.slice(i, i + 4).map(recording))) {
+      if (!hit || played >= 5) continue
+      try {
+        await preview(hit, played === 0 ? 'now' : 'end')
+        if (++played === 1) started()
+      } catch { /* that one couldn't be fetched: the next */ }
+    }
+  }
+  if (!played) { started(); alert(t('shuffleNothing')) }
+}
+
+export function ComposerPage({ name, open, preview }: { name: string; open: (p: Page) => void; preview: (c: CatalogSong, how: 'now' | 'end') => Promise<void> }) {
   const { data: c, error } = useLoad(() => api.composer(name), [name])
   const [filter, setFilter] = useState('')
+  const [shuffling, setShuffling] = useState(false)
+  // the works by genre: loaded after the works themselves (it takes IMSLP a moment)
+  const [tags, setTags] = useState<Record<string, string[]> | null>(null)
+  const [genre, setGenre] = useState('')
+  useEffect(() => { api.classicalGenres(name).then(setTags).catch(() => setTags({})) }, [name])
+  const counts = useMemo(() => {
+    const n: Record<string, number> = {}
+    for (const gs of Object.values(tags ?? {})) for (const g of gs) n[g] = (n[g] ?? 0) + 1
+    return Object.entries(n).sort((a, b) => b[1] - a[1])
+  }, [tags])
   const shown = useMemo(() => {
     const f = filter.trim().toLowerCase()
-    return c ? (f ? c.works.filter(w => w.name.toLowerCase().includes(f)) : c.works) : []
-  }, [c, filter])
+    let ws = c?.works ?? []
+    if (genre) ws = ws.filter(w => tags?.[w.page]?.includes(genre))
+    return f ? ws.filter(w => w.name.toLowerCase().includes(f)) : ws
+  }, [c, filter, genre, tags])
 
   if (error) return <p className="error pad">{error}</p>
   if (!c) return <p className="muted pad">{t('loading')}</p>
@@ -133,14 +189,28 @@ export function ComposerPage({ name, open }: { name: string; open: (p: Page) => 
           {getLang() === 'zh' && c.zh && <p className="muted">{c.name}</p>}
           {c.extract && <p className="cl-extract">{c.extract}</p>}
           <p className="muted small">{t('nWorks', { n: c.works.length })} · <a href={c.imslp} target="_blank" rel="noreferrer">IMSLP ↗</a></p>
+          <div className="ia-buttons cl-buttons">
+            <button className="blue" disabled={shuffling || !shown.length} title={t('shuffleWorksHint')}
+              onClick={() => { setShuffling(true); shuffleWorks(c.name, shown, preview, () => setShuffling(false)) }}>
+              <I.Shuffle size={11} /> {shuffling ? t('shuffleFinding') : genre || filter ? t('shuffleShown', { n: shown.length }) : t('shuffleWorks')}
+            </button>
+          </div>
         </div>
       </div>
+      {counts.length > 0 && (
+        <nav className="cl-genres">
+          <button className={genre ? '' : 'on'} onClick={() => setGenre('')}>{t('allWorks')} <span>{c.works.length}</span></button>
+          {counts.map(([g, n]) => (
+            <button key={g} className={genre === g ? 'on' : ''} onClick={() => setGenre(genre === g ? '' : g)}>{genreLabel(g)} <span>{n}</span></button>
+          ))}
+        </nav>
+      )}
       <div className="listbar">
         <label className="searchfield">
           <I.Search size={12} />
           <input placeholder={t('filterWorks')} value={filter} onChange={e => setFilter(e.target.value)} />
         </label>
-        <span className="muted small">{filter && t('nWorks', { n: shown.length })}</span>
+        <span className="muted small">{(filter || genre) && t('nWorks', { n: shown.length })}</span>
       </div>
       <table className="songlist cl-worklist">
         <thead><tr><th className="c-cat">{t('catalogueNo')}</th><th>{t('work')}</th></tr></thead>

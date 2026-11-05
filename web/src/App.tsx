@@ -277,7 +277,7 @@ function Main({ user, onLogout }: { user: User; onLogout: () => void }) {
           {page.kind === 'user' && <ProfilePage key={page.name} name={page.name} me={user.name} open={open} play={q.play} onSong={onSong} onFriends={loadFriends} />}
           {page.kind === 'groups' && <GroupsPage open={open} />}
           {page.kind === 'classical' && <ClassicalHome open={open} />}
-          {page.kind === 'composer' && <ComposerPage key={page.name} name={page.name} open={open} />}
+          {page.kind === 'composer' && <ComposerPage key={page.name} name={page.name} open={open} preview={preview} />}
           {page.kind === 'work' && <WorkPage key={page.page} page={page.page} open={open} />}
           {page.kind === 'scores' && <ScoresPage open={open} />}
           {page.kind === 'playlist' && <PlaylistPage key={page.id} id={page.id} currentId={q.current} open={open} play={q.play}

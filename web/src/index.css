@@ -1202,3 +1202,11 @@ input.pl-name { padding: 0 4px; height: 32px; border: 1px solid #7aa7e8; border-
 .pod-under { overflow: hidden; }
 .pod-list { will-change: transform; }
 .pod-search.sel input { border-color: #3b7ad8; box-shadow: 0 0 0 2px rgba(59, 122, 216, .45); }
+
+/* a composer's works by genre */
+.cl-genres { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 22px 12px; }
+.cl-genres button { border: 1px solid #b9bfc8; border-radius: 12px; background: linear-gradient(#fdfdfd, #e9ebee); padding: 2px 10px;
+  font-size: 12px; color: #333; cursor: pointer; }
+.cl-genres button span { color: #888; margin-left: 2px; }
+.cl-genres button.on { background: linear-gradient(#6fa8ec, #3b7ad8); border-color: #2b67c4; color: #fff; }
+.cl-genres button.on span { color: #dfe9ff; }
